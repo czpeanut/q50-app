@@ -20,14 +20,32 @@
         <meta-data android:name="ivi.supportDisplay" android:value="ALL" />
         <meta-data android:name="ivi.defaultDisplay" android:value="LOWER" />
 
-        <activity android:name=".MainActivity" android:label="AppGarage Dash"
+        <!-- ==== LAUNCHER SWITCH ====
+             Exactly one of the two activities below carries the MAIN/LAUNCHER intent-filter.
+             To go back to the gauge screen, move the <intent-filter> block from
+             .SensorListActivity to .MainActivity — nothing else needs to change. -->
+
+        <!-- Sensor discovery screen: dumps getSensorList(TYPE_ALL). Launcher for now. -->
+        <activity android:name=".SensorListActivity" android:label="AppGarage Dash"
                   android:icon="@drawable/ic_launcher"
                   android:screenOrientation="landscape"
                   android:keepScreenOn="true">
+            <!-- app-level ivi.* meta-data above already applies; repeated here so the
+                 non-distractive flag travels with this activity whichever level the
+                 InTouch PackageParser reads it from. -->
+            <meta-data android:name="ivi.isDistractive" android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- Gauge screen: kept declared, just not the launcher right now. -->
+        <activity android:name=".MainActivity" android:label="AppGarage Dash"
+                  android:icon="@drawable/ic_launcher"
+                  android:screenOrientation="landscape"
+                  android:keepScreenOn="true">
+            <meta-data android:name="ivi.isDistractive" android:value="false" />
         </activity>
     </application>
 </manifest>
