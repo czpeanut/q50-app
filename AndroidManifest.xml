@@ -9,6 +9,11 @@
     <!-- read the vehicle CAN signals (VS_ID_* sensors). protectionLevel=dangerous -> auto-granted on API 10 -->
     <uses-permission android:name="com.ygomi.permission.IVI_CAN_READ" />
 
+    <!-- for the storage probe / CSV recorder in SensorWatchActivity. On API 10 this is
+         granted at install time; internal storage (getFilesDir) needs no permission at all,
+         so the probe still reports something even if this is refused. -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
     <application android:label="AppGarage Dash" android:icon="@drawable/ic_launcher" android:allowBackup="true">
         <!-- ivi.isDistractive=false => runningRestriction=0 => USABLE WHILE DRIVING.
              (PackageParser defaults absent apps to 3 = restricted.) Matches DrivingPerformance. -->
@@ -21,23 +26,30 @@
         <meta-data android:name="ivi.defaultDisplay" android:value="LOWER" />
 
         <!-- ==== LAUNCHER SWITCH ====
-             Exactly one of the two activities below carries the MAIN/LAUNCHER intent-filter.
-             To go back to the gauge screen, move the <intent-filter> block from
-             .SensorListActivity to .MainActivity — nothing else needs to change. -->
+             Exactly one of the three activities below carries the MAIN/LAUNCHER
+             intent-filter. To change which screen the app opens on, move the
+             <intent-filter> block — nothing else needs to change. Every activity repeats
+             ivi.isDistractive="false" so the non-distractive flag travels with it whichever
+             level the InTouch PackageParser reads it from. -->
 
-        <!-- Sensor discovery screen: dumps getSensorList(TYPE_ALL). Launcher for now. -->
-        <activity android:name=".SensorListActivity" android:label="AppGarage Dash"
+        <!-- Live watcher with min/max latch + storage probe + CSV recorder. Launcher. -->
+        <activity android:name=".SensorWatchActivity" android:label="AppGarage Dash"
                   android:icon="@drawable/ic_launcher"
                   android:screenOrientation="landscape"
                   android:keepScreenOn="true">
-            <!-- app-level ivi.* meta-data above already applies; repeated here so the
-                 non-distractive flag travels with this activity whichever level the
-                 InTouch PackageParser reads it from. -->
             <meta-data android:name="ivi.isDistractive" android:value="false" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- Sensor inventory dump. Reachable from the watcher's LIST button. -->
+        <activity android:name=".SensorListActivity" android:label="AppGarage Dash"
+                  android:icon="@drawable/ic_launcher"
+                  android:screenOrientation="landscape"
+                  android:keepScreenOn="true">
+            <meta-data android:name="ivi.isDistractive" android:value="false" />
         </activity>
 
         <!-- Gauge screen: kept declared, just not the launcher right now. -->
