@@ -21,6 +21,8 @@ import android.widget.TextView;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.File;
 import java.io.FileWriter;
@@ -94,7 +96,7 @@ public class SensorWatchActivity extends Activity
     private final StringBuilder sb = new StringBuilder(8192);
 
     private TextView bigTv, allTv, statusTv;
-    private Button resetBtn, recBtn, diagBtn, listBtn;
+    private Button resetBtn, recBtn, exportBtn, diagBtn, listBtn;
 
     private boolean showDiag;
     private String diagText = "";
@@ -120,6 +122,7 @@ public class SensorWatchActivity extends Activity
         bar.setOrientation(LinearLayout.HORIZONTAL);
         resetBtn = addButton(bar, "RESET");
         recBtn = addButton(bar, "REC");
+        exportBtn = addButton(bar, "EXPORT");
         diagBtn = addButton(bar, "STORAGE?");
         listBtn = addButton(bar, "LIST");
         root.addView(bar, wrap());
@@ -343,6 +346,8 @@ public class SensorWatchActivity extends Activity
         } catch (Throwable t) { probeLog.add("externalStorageState threw " + t); }
 
         probe(getFilesDir(), "getFilesDir");
+        try { probe(getExternalFilesDir(null), "getExternalFilesDir"); }
+        catch (Throwable t) { probeLog.add("getExternalFilesDir threw " + t); }
         try { probe(Environment.getExternalStorageDirectory(), "externalStorageDir"); }
         catch (Throwable t) { probeLog.add("externalStorageDir threw " + t); }
 
@@ -418,7 +423,18 @@ public class SensorWatchActivity extends Activity
         d.append("if nothing here is writable, CSV logging is impossible on this unit\n\n");
         for (int i = 0; i < probeLog.size(); i++) d.append(probeLog.get(i)).append('\n');
         File pick = pickLogDir();
-        d.append("\nREC would write to: ").append(pick == null ? "nowhere" : pick.getAbsolutePath()).append('\n');
+        d.append("\nREC writes to (always internal): ")
+         .append(pick == null ? "nowhere" : pick.getAbsolutePath()).append('\n');
+        File ex = pickExportDir();
+        d.append("EXPORT would copy to: ")
+         .append(ex == null ? "NOWHERE REACHABLE -- plug the USB stick in and press STORAGE? again"
+                            : ex.getAbsolutePath()).append('\n');
+        File[] logs = logFiles();
+        d.append("\nrecordings held internally: ").append(logs.length).append('\n');
+        for (int i = 0; i < logs.length; i++) {
+            d.append("  ").append(logs[i].getName()).append("  ")
+             .append(logs[i].length() / 1024).append(" KB\n");
+        }
         d.append("\n/proc/mounts\n");
         BufferedReader r = null;
         try {
@@ -434,16 +450,88 @@ public class SensorWatchActivity extends Activity
         diagText = d.toString();
     }
 
-    /** prefer removable media, so the CSV can just be carried indoors on the stick */
+    /**
+     * Recording always targets internal storage. It is the one directory guaranteed to be
+     * there, it needs no permission, and it cannot vanish mid-drive the way a USB stick
+     * yanked out of the socket can. The catch is that nothing outside this app can read it
+     * on an unrooted 2.3 device -- which is what EXPORT is for.
+     */
     private File pickLogDir() {
+        return getFilesDir();
+    }
+
+    /** the best writable directory that is NOT the app's private one, i.e. somewhere reachable */
+    private File pickExportDir() {
+        File internal = getFilesDir();
+        String skip = (internal == null) ? "" : internal.getAbsolutePath();
         File best = null;
         int bestScore = -1;
         for (int i = 0; i < writable.size(); i++) {
             File f = writable.get(i);
-            int score = scoreDir(f.getAbsolutePath());
+            String path = f.getAbsolutePath();
+            if (path.equals(skip)) continue;
+            int score = scoreDir(path);
             if (score > bestScore) { bestScore = score; best = f; }
         }
         return best;
+    }
+
+    private File[] logFiles() {
+        File dir = getFilesDir();
+        if (dir == null) return new File[0];
+        File[] all = dir.listFiles();
+        if (all == null) return new File[0];
+        int n = 0;
+        for (int i = 0; i < all.length; i++) if (all[i].getName().endsWith(".csv")) n++;
+        File[] out = new File[n];
+        n = 0;
+        for (int i = 0; i < all.length; i++) if (all[i].getName().endsWith(".csv")) out[n++] = all[i];
+        return out;
+    }
+
+    /**
+     * Copy every recorded log out of the private directory to somewhere a human can reach.
+     * Re-probes first, so plugging the stick in after boot -- or after the recording -- works.
+     */
+    private void exportLogs() {
+        if (writer != null) stopRecording("stopped for export");
+        probeStorage();
+        buildDiag();
+        File[] logs = logFiles();
+        if (logs.length == 0) { note = "EXPORT: no recordings yet -- press REC first"; return; }
+        File dst = pickExportDir();
+        if (dst == null) {
+            note = "EXPORT: nowhere reachable to copy to. Plug the USB stick in, then press"
+                 + " STORAGE? -- " + logs.length + " recording(s) are waiting internally.";
+            return;
+        }
+        int ok = 0;
+        long bytes = 0;
+        String err = "";
+        for (int i = 0; i < logs.length; i++) {
+            try { bytes += copyFile(logs[i], new File(dst, logs[i].getName())); ok++; }
+            catch (Throwable t) { err = " last error: " + t; }
+        }
+        note = "EXPORT: " + ok + "/" + logs.length + " file(s), " + (bytes / 1024)
+             + " KB -> " + dst.getAbsolutePath() + err;
+    }
+
+    private long copyFile(File src, File dst) throws Exception {
+        FileInputStream in = null;
+        FileOutputStream out = null;
+        long total = 0;
+        try {
+            in = new FileInputStream(src);
+            out = new FileOutputStream(dst);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) { out.write(buf, 0, n); total += n; }
+            out.flush();
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignored) {}
+            try { if (out != null) out.close(); } catch (Throwable ignored) {}
+        }
+        return total;
     }
 
     private static int scoreDir(String path) {
@@ -510,6 +598,8 @@ public class SensorWatchActivity extends Activity
             note = "";
         } else if (v == recBtn) {
             if (writer == null) startRecording(); else stopRecording("");
+        } else if (v == exportBtn) {
+            try { exportLogs(); } catch (Throwable t) { note = "EXPORT failed: " + t; }
         } else if (v == diagBtn) {
             showDiag = !showDiag;
             if (showDiag) { probeStorage(); buildDiag(); }       // re-probe: a stick may have
