@@ -8,7 +8,8 @@
 # Keep it in step with DashView by hand -- it mirrors the layout maths, not the code.
 #
 #   bash tools/preview.sh            # normal running state
-#   bash tools/preview.sh warn       # redline, hot coolant, low tyre, hard braking
+#   bash tools/preview.sh warn       # redline, hot coolant, soft tyre, hard braking
+#   bash tools/preview.sh ev         # electric drive, engine off, still warming up
 #   bash tools/preview.sh normal en  # English labels
 set -euo pipefail
 cd "$(dirname "$0")/.."

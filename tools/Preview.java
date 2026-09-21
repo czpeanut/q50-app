@@ -5,18 +5,26 @@ import java.io.File;
 import java.util.Random;
 import javax.imageio.ImageIO;
 
-/** Desktop port of DashView's geometry so the 800x480 layout can be judged without a car. */
+/**
+ * Desktop port of DashView's geometry so the 800x480 layout can be judged without a car.
+ * It mirrors the layout maths, not the code; keep it in step by hand. Animation state is
+ * passed in as a frozen frame rather than run.
+ */
 public class Preview {
-    static final int RPM=13,COOLANT=14,SPEED=17,GEAR=22,ACCEL=23,BRAKE=24,STEER=25,ODO=43,
-        TP_FR=36,TP_FL=37,TP_RR=38,TP_RL=39;
-    static final float REDLINE=7000f, COOLANT_MIN=40f, COOLANT_MAX=120f, COOLANT_WARN=105f;
-    static final float TPMS_LOW=30f, TPMS_HIGH=44f, STEER_FULL=390f, PEDAL_FULL=90f;
-    static final Color BG_TOP=c(0xFF070B14), BG_BOT=c(0xFF0D1522);
-    static final Color CYAN=c(0xFF3FD2FF), CYAN_DIM=c(0xFF1B4E66), CYAN_GLOW=c(0x553FD2FF);
-    static final Color WHITE=c(0xFFEAF6FF), GREY=c(0xFF5A6B7C);
+    static final int RPM=13,COOLANT=14,SPEED=17,GEAR=22,ACCEL=23,BRAKE=24,STEER=25,
+        G_LAT=20,G_LONG=21,TP_FR=36,TP_FL=37,TP_RR=38,TP_RL=39;
+    static final float REDLINE=7000f, SHIFT_AMBER=0.84f, SHIFT_RED=0.94f;
+    static final float COOLANT_MIN=40f, COOLANT_MAX=120f, COOLANT_COLD=60f, COOLANT_WARN=105f;
+    static final float TPMS_LOW=30f, TPMS_HIGH=44f, STEER_FULL=390f;
+    static final float BRAKE_FULL=90f, ACCEL_FULL=1000f, G_FULL=1.0f, EV_RPM=50f, EV_KMH=3f;
+    static final Color BG_TOP=c(0xFF060A12), BG_BOT=c(0xFF0C1420);
+    static final Color CYAN=c(0xFF3FD2FF), CYAN_DIM=c(0xFF1B4E66);
+    static final Color WHITE=c(0xFFEAF6FF), GREY=c(0xFF55697C), DARK=c(0xFF13212C);
     static final Color AMBER=c(0xFFFFB020), RED=c(0xFFFF4545), GREEN=c(0xFF46E08A);
     static final Color PANEL=c(0xCC0A1420);
-    static Color c(int argb){ return new Color((argb>>16)&255,(argb>>8)&255,argb&255,(argb>>>24)&255); }
+    static final int TRAIL=22;
+    static Color c(int a){ return new Color((a>>16)&255,(a>>8)&255,a&255,(a>>>24)&255); }
+    static Color al(Color x,int a){ return new Color(x.getRed(),x.getGreen(),x.getBlue(),a); }
 
     static float[] v=new float[64]; static boolean[] have=new boolean[64];
     static void set(int t,float x){ v[t]=x; have[t]=true; }
@@ -24,59 +32,50 @@ public class Preview {
     static boolean h(int t){ return have[t]; }
 
     static float W=800,H=480;
-    static float rpmX,rpmY0,rpmY1,barW,cooX,carCx,carCy,carW,carH,dialCx,dialCy,dialR;
+    static float rpmX,rpmY0,rpmY1,barW,cooX,carCx,carCy,carW,carH,dialCx,dialCy,dialR,gCx,gCy,gR;
     static Rectangle2D.Float[] tyreBox=new Rectangle2D.Float[4];
+    static Rectangle2D.Float evBox,gearBox;
     static float[] tdx=new float[4],tdy=new float[4];
     static int[] tyreType={TP_FL,TP_FR,TP_RL,TP_RR};
     static float pedalL,pedalR,pedalY0,pedalY1;
-    static Graphics2D G;
-    static boolean cjk=true;
-    static String FONT="WenQuanYi Zen Hei";
+    static Graphics2D G; static boolean cjk=true; static String FONT="WenQuanYi Zen Hei";
+    static float pulse=1f, peak=0f, maxG=0f; static boolean gearFlash=false;
+    static float[] trailX=new float[TRAIL], trailY=new float[TRAIL]; static int trailN=0;
 
     static void layout(){
-        barW=W*0.0625f; rpmX=W*0.0225f; cooX=W-rpmX-barW; rpmY0=H*0.20f; rpmY1=H*0.929f;
-        carW=W*0.2375f; carH=H*0.479f; carCx=W*0.5f; carCy=H*0.604f;
+        barW=W*0.0625f; rpmX=W*0.0225f; cooX=W-rpmX-barW; rpmY0=H*0.225f; rpmY1=H*0.929f;
+        gearBox=new Rectangle2D.Float(W*0.1875f,H*0.0583f,W*0.10f,H*0.125f);
+        evBox  =new Rectangle2D.Float(W*0.305f, H*0.0583f,W*0.10f,H*0.125f);
         dialR=H*0.0833f; dialCx=W*0.75f; dialCy=H*0.1083f;
-        float bw=W*0.1875f,bh=H*0.125f,leftX=W*0.11f,rightX=W*0.7025f,topY=H*0.3646f,botY=H*0.625f;
+        carW=W*0.2375f; carH=H*0.46f; carCx=W*0.5f; carCy=H*0.53f;
+        float bw=W*0.1875f,bh=H*0.125f,leftX=W*0.11f,rightX=W*0.7025f,topY=H*0.335f,botY=H*0.585f;
         tyreBox[0]=new Rectangle2D.Float(leftX,topY,bw,bh);
         tyreBox[1]=new Rectangle2D.Float(rightX,topY,bw,bh);
         tyreBox[2]=new Rectangle2D.Float(leftX,botY,bw,bh);
         tyreBox[3]=new Rectangle2D.Float(rightX,botY,bw,bh);
-        tdx[0]=carCx-carW*0.46f; tdy[0]=carCy-carH*0.20f;
-        tdx[1]=carCx+carW*0.46f; tdy[1]=carCy-carH*0.20f;
-        tdx[2]=carCx-carW*0.46f; tdy[2]=carCy+carH*0.26f;
-        tdx[3]=carCx+carW*0.46f; tdy[3]=carCy+carH*0.26f;
-        pedalL=W*0.3125f; pedalR=W*0.6875f; pedalY0=H*0.8333f; pedalY1=H*0.90f;
+        tdx[0]=carCx-carW*0.46f; tdy[0]=carCy-carH*0.22f;
+        tdx[1]=carCx+carW*0.46f; tdy[1]=carCy-carH*0.22f;
+        tdx[2]=carCx-carW*0.46f; tdy[2]=carCy+carH*0.28f;
+        tdx[3]=carCx+carW*0.46f; tdy[3]=carCy+carH*0.28f;
+        gR=H*0.080f; gCx=W*0.15f; gCy=H*0.855f;
+        pedalL=W*0.3125f; pedalR=W*0.6875f; pedalY0=H*0.855f; pedalY1=H*0.915f;
     }
-    static void font(float px,boolean mono){
-        G.setFont(new Font(mono?"monospaced":FONT,Font.PLAIN,Math.round(px)));
+    static void font(float px,boolean mono){ G.setFont(new Font(mono?"monospaced":FONT,Font.PLAIN,Math.round(px))); }
+    static float tw(String s){ return G.getFontMetrics().stringWidth(s); }
+    static void text(String s,float x,float y,int align){
+        float w=tw(s); G.drawString(s, align==0?x:align==1?x-w/2f:x-w, y);
     }
-    static void text(String s,float x,float y,int align){ // 0 L,1 C,2 R
-        FontMetrics fm=G.getFontMetrics(); int w=fm.stringWidth(s);
-        float px=align==0?x:align==1?x-w/2f:x-w;
-        G.drawString(s,px,y);
-    }
-    static void rect(float l,float t,float r,float b,Color col,boolean fill,float sw){
-        G.setColor(col);
-        Shape s=new Rectangle2D.Float(l,t,r-l,b-t);
-        if(fill) G.fill(s); else { G.setStroke(new BasicStroke(sw)); G.draw(s); }
-    }
+    static void rectF(float l,float t,float r,float b,Color col){ G.setColor(col); G.fill(new Rectangle2D.Float(l,t,r-l,b-t)); }
+    static void rectS(float l,float t,float r,float b,Color col,float sw){ G.setColor(col); G.setStroke(new BasicStroke(sw)); G.draw(new Rectangle2D.Float(l,t,r-l,b-t)); }
     static void frame(float l,float t,float r,float b){
-        rect(l,t,r,b,PANEL,true,0); rect(l,t,r,b,CYAN_GLOW,false,3.2f); rect(l,t,r,b,CYAN_DIM,false,1.4f);
+        rectF(l,t,r,b,PANEL); rectS(l,t,r,b,c(0x553FD2FF),3.2f); rectS(l,t,r,b,CYAN_DIM,1.4f);
     }
-    static void panel(Rectangle2D.Float b){ frame((float)b.getMinX(),(float)b.getMinY(),(float)b.getMaxX(),(float)b.getMaxY()); }
-    static void label(String s,float cx,float top){
-        G.setColor(GREY); font(H*0.045f,false); text(s,cx,top,1);
-    }
-    static String fmt(float val,int dec){
-        if(dec==0) return String.valueOf(Math.round(val));
-        return String.format("%."+dec+"f",val);
-    }
+    static void frame(Rectangle2D.Float b){ frame((float)b.getMinX(),(float)b.getMinY(),(float)b.getMaxX(),(float)b.getMaxY()); }
+    static void label(String s,float cx,float base){ G.setColor(GREY); font(H*0.042f,false); text(s,cx,base,1); }
+    static String fmt(float val,int dec){ return dec==0?String.valueOf(Math.round(val)):String.format("%."+dec+"f",val); }
     static void glow(Shape s,Color col,float w){
-        G.setColor(new Color(col.getRed(),col.getGreen(),col.getBlue(),0x40));
-        G.setStroke(new BasicStroke(w,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(s);
-        G.setColor(col);
-        G.setStroke(new BasicStroke(w*0.28f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(s);
+        G.setColor(al(col,0x40)); G.setStroke(new BasicStroke(w,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(s);
+        G.setColor(col); G.setStroke(new BasicStroke(w*0.28f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(s);
     }
     static String tyreLabel(int i){
         if(cjk){ switch(i){ case 0: return "左前胎壓"; case 1: return "右前胎壓";
@@ -87,40 +86,40 @@ public class Preview {
     static String gearText(){
         if(!h(GEAR)) return "--";
         int x=(int)(g(GEAR)+0.5f);
-        if(x==1)return "P"; if(x==2)return "R"; if(x==3)return "N"; if(x==4)return "D";
+        switch(x){ case 1: return "P"; case 2: return "R"; case 3: return "N"; case 4: return "D"; }
         if(x>=16&&x<=22) return "M"+(x-15);
         return "--";
     }
+    static float tachFrac(){ float f=h(RPM)?g(RPM)/REDLINE:0f; return Math.max(0,Math.min(1,f)); }
+    static float clamp1(float x){ return x<-1f?-1f:x>1f?1f:x; }
 
     static void drawCar(){
         float hw=carW*0.5f,hh=carH*0.5f,x=carCx,y=carCy;
         GeneralPath p=new GeneralPath();
-        p.moveTo(x-hw,y+hh*0.52f); p.lineTo(x-hw,y-hh*0.18f);
-        p.quadTo(x-hw*0.94f,y-hh*0.52f,x-hw*0.62f,y-hh*0.62f);
-        p.lineTo(x-hw*0.44f,y-hh*0.95f);
-        p.quadTo(x,y-hh*1.06f,x+hw*0.44f,y-hh*0.95f);
-        p.lineTo(x+hw*0.62f,y-hh*0.62f);
-        p.quadTo(x+hw*0.94f,y-hh*0.52f,x+hw,y-hh*0.18f);
-        p.lineTo(x+hw,y+hh*0.52f);
-        p.quadTo(x+hw*0.86f,y+hh*0.76f,x+hw*0.54f,y+hh*0.78f);
-        p.lineTo(x-hw*0.54f,y+hh*0.78f);
-        p.quadTo(x-hw*0.86f,y+hh*0.76f,x-hw,y+hh*0.52f);
-        p.closePath();
-        p.moveTo(x-hw*0.52f,y-hh*0.60f);
-        p.quadTo(x,y-hh*0.72f,x+hw*0.52f,y-hh*0.60f);
-        p.lineTo(x+hw*0.62f,y-hh*0.22f); p.lineTo(x-hw*0.62f,y-hh*0.22f); p.closePath();
-        p.append(new Rectangle2D.Float(x-hw*0.92f,y+hh*0.02f,hw*0.46f,hh*0.20f),false);
-        p.append(new Rectangle2D.Float(x+hw*0.46f,y+hh*0.02f,hw*0.46f,hh*0.20f),false);
-        p.append(new Rectangle2D.Float(x-hw*0.30f,y+hh*0.52f,hw*0.60f,hh*0.14f),false);
-        glow(p,CYAN,carW*0.028f);
+        p.moveTo(x-hw,y+hh*0.50f); p.lineTo(x-hw,y-hh*0.16f);
+        p.quadTo(x-hw*0.95f,y-hh*0.50f,x-hw*0.60f,y-hh*0.60f);
+        p.lineTo(x-hw*0.42f,y-hh*0.93f);
+        p.quadTo(x,y-hh*1.04f,x+hw*0.42f,y-hh*0.93f);
+        p.lineTo(x+hw*0.60f,y-hh*0.60f);
+        p.quadTo(x+hw*0.95f,y-hh*0.50f,x+hw,y-hh*0.16f);
+        p.lineTo(x+hw,y+hh*0.50f);
+        p.quadTo(x+hw*0.88f,y+hh*0.74f,x+hw*0.52f,y+hh*0.76f);
+        p.lineTo(x-hw*0.52f,y+hh*0.76f);
+        p.quadTo(x-hw*0.88f,y+hh*0.74f,x-hw,y+hh*0.50f); p.closePath();
+        p.moveTo(x-hw*0.50f,y-hh*0.58f); p.quadTo(x,y-hh*0.70f,x+hw*0.50f,y-hh*0.58f);
+        p.lineTo(x+hw*0.60f,y-hh*0.20f); p.lineTo(x-hw*0.60f,y-hh*0.20f); p.closePath();
+        p.append(new Rectangle2D.Float(x-hw*0.92f,y+hh*0.00f,hw*0.48f,hh*0.20f),false);
+        p.append(new Rectangle2D.Float(x+hw*0.44f,y+hh*0.00f,hw*0.48f,hh*0.20f),false);
+        p.append(new Rectangle2D.Float(x-hw*0.28f,y+hh*0.50f,hw*0.56f,hh*0.14f),false);
+        glow(p,CYAN,carW*0.030f);
     }
 
     static void drawStatic(){
         G.setPaint(new GradientPaint(0,0,BG_TOP,0,H,BG_BOT)); G.fillRect(0,0,(int)W,(int)H);
         Random rnd=new Random(20260921L);
-        for(int i=0;i<160;i++){
-            float x=rnd.nextFloat()*W,y=rnd.nextFloat()*H,rad=0.4f+rnd.nextFloat()*1.1f;
-            G.setColor(c(0xFF000000|(0x203040+rnd.nextInt(0x304050))));
+        for(int i=0;i<150;i++){
+            float x=rnd.nextFloat()*W,y=rnd.nextFloat()*H,rad=0.4f+rnd.nextFloat()*1.0f;
+            G.setColor(c(0xFF000000|(0x1A2836+rnd.nextInt(0x283848))));
             G.fill(new Ellipse2D.Float(x-rad,y-rad,rad*2,rad*2));
         }
         drawCar();
@@ -128,114 +127,136 @@ public class Preview {
         G.setColor(WHITE); font(H*0.071f,false);
         text(cjk?"轉速":"RPM",rpmX,H*0.0833f,0);
         text(cjk?"水溫":"COOLANT",cooX+barW,H*0.0833f,2);
-        frame(W*0.1875f,H*0.0583f,W*0.2875f,H*0.1833f);
-        label(cjk?"檔位":"GEAR",W*0.2375f,H*0.0458f);
-        label(cjk?"轉向角":"STEERING",W*0.475f,H*0.0458f);
+        frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),H*0.0458f);
+        frame(evBox);   label(cjk?"純電":"ELECTRIC",(float)evBox.getCenterX(),H*0.0458f);
+        label(cjk?"轉向角":"STEERING",W*0.505f,H*0.0458f);
         G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.6f));
         G.draw(new Ellipse2D.Float(dialCx-dialR,dialCy-dialR,dialR*2,dialR*2));
-        for(int i=0;i<12;i++){
-            double a=Math.PI*2*i/12.0;
+        for(int i=0;i<12;i++){ double a=Math.PI*2*i/12.0;
             G.draw(new Line2D.Float(dialCx+(float)Math.cos(a)*dialR*0.84f,dialCy+(float)Math.sin(a)*dialR*0.84f,
-                                    dialCx+(float)Math.cos(a)*dialR*0.96f,dialCy+(float)Math.sin(a)*dialR*0.96f));
-        }
+                                    dialCx+(float)Math.cos(a)*dialR*0.96f,dialCy+(float)Math.sin(a)*dialR*0.96f)); }
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; boolean left=(i==0||i==2);
-            float ax=left?(float)b.getMaxX():(float)b.getMinX(), ay=(float)b.getCenterY();
             G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.4f));
-            G.draw(new Line2D.Float(ax,ay,tdx[i],tdy[i]));
+            G.draw(new Line2D.Float(left?(float)b.getMaxX():(float)b.getMinX(),(float)b.getCenterY(),tdx[i],tdy[i]));
             G.setColor(CYAN); G.fill(new Ellipse2D.Float(tdx[i]-3.2f,tdy[i]-3.2f,6.4f,6.4f));
-            panel(b);
+            frame(b);
             G.setColor(GREY); font(H*0.038f,false);
             text(tyreLabel(i),(float)b.getMinX()+W*0.012f,(float)b.getMinY()+H*0.038f,0);
         }
-        panel(new Rectangle2D.Float(pedalL,pedalY0,pedalR-pedalL,pedalY1-pedalY0));
+        frame(pedalL,pedalY0,pedalR,pedalY1);
         G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.4f));
-        float mid=(pedalL+pedalR)*0.5f; G.draw(new Line2D.Float(mid,pedalY0,mid,pedalY1));
-        G.setColor(GREY); font(H*0.046f,false);
+        float m=(pedalL+pedalR)*0.5f; G.draw(new Line2D.Float(m,pedalY0,m,pedalY1));
+        G.setColor(GREY); font(H*0.044f,false);
         text(cjk?"剎車":"BRAKE",pedalL,pedalY0-H*0.018f,0);
         text(cjk?"加速":"THROTTLE",pedalR,pedalY0-H*0.018f,2);
-        label(cjk?"車速 km/h":"SPEED km/h",W*0.80f,H*0.7917f);
+        label(cjk?"車速 km/h":"SPEED km/h",W*0.80f,H*0.815f);
     }
 
     static void drawLive(){
+        float frac=tachFrac();
+        // shift band
+        if(frac>=SHIFT_AMBER){
+            Color col=frac>=SHIFT_RED?RED:AMBER;
+            rectF(0,0,W,H*0.014f,col); rectF(0,H*0.014f,W,H*0.030f,al(col,0x33));
+        }
         // tach
         final int N=24; float inner=barW*0.18f,x0=rpmX+inner,x1=rpmX+barW-inner;
         float span=(rpmY1-rpmY0)-inner*2f, seg=span/N;
-        float lit=h(RPM)?g(RPM)/REDLINE:0f; lit=Math.max(0,Math.min(1,lit));
-        int on=(int)(lit*N+0.5f);
+        int on=(int)(frac*N+0.5f), amberFrom=(int)(SHIFT_AMBER*N), redFrom=(int)(SHIFT_RED*N);
         for(int i=0;i<N;i++){
-            float t=rpmY1-inner-(i+1)*seg; boolean isOn=i<on, isRed=i>=N-4;
-            if(isOn){ rect(x0-2,t+seg*0.10f-2,x1+2,t+seg*0.82f+2,isRed?RED:CYAN_GLOW,true,0);
-                      rect(x0,t+seg*0.10f,x1,t+seg*0.82f,isRed?RED:CYAN,true,0); }
-            else rect(x0,t+seg*0.10f,x1,t+seg*0.82f,isRed?c(0xFF3A1414):c(0xFF13212C),true,0);
+            float t=rpmY1-inner-(i+1)*seg, top=t+seg*0.10f, bot=t+seg*0.82f;
+            Color col=i>=redFrom?RED:i>=amberFrom?AMBER:CYAN;
+            if(i<on){ rectF(x0-2.5f,top-2.5f,x1+2.5f,bot+2.5f,al(col,0x55)); rectF(x0,top,x1,bot,col); }
+            else rectF(x0,top,x1,bot,i>=redFrom?c(0xFF3A1414):i>=amberFrom?c(0xFF3A2E14):DARK);
         }
-        G.setColor(h(RPM)?WHITE:GREY); font(H*0.058f,true);
+        if(peak>0.02f){ float y=rpmY1-inner-peak*span; rectF(rpmX-2f,y-1.5f,rpmX+barW+2f,y+1.5f,WHITE); }
+        G.setColor(h(RPM)?(frac>=SHIFT_RED?RED:WHITE):GREY); font(H*0.062f,true);
         text(h(RPM)?fmt(g(RPM),0):"--",rpmX,H*0.1667f,0);
         // coolant
         float ix=barW*0.18f,cx0=cooX+ix,cx1=cooX+barW-ix,cy0=rpmY0+ix,cy1=rpmY1-ix;
-        float frac=h(COOLANT)?(g(COOLANT)-COOLANT_MIN)/(COOLANT_MAX-COOLANT_MIN):0f;
-        frac=Math.max(0,Math.min(1,frac));
-        float top=cy1-(cy1-cy0)*frac;
-        Color col=(h(COOLANT)&&g(COOLANT)>=COOLANT_WARN)?RED:CYAN;
-        rect(cx0,cy0,cx1,cy1,c(0xFF10202B),true,0);
-        if(h(COOLANT)&&frac>0.01f){
-            G.setColor(new Color(col.getRed(),col.getGreen(),col.getBlue(),0x66));
-            G.fill(new Rectangle2D.Float(cx0,top,cx1-cx0,cy1-top));
+        float cf=h(COOLANT)?(g(COOLANT)-COOLANT_MIN)/(COOLANT_MAX-COOLANT_MIN):0f;
+        cf=Math.max(0,Math.min(1,cf)); float top=cy1-(cy1-cy0)*cf;
+        boolean hot=h(COOLANT)&&g(COOLANT)>=COOLANT_WARN, cold=h(COOLANT)&&g(COOLANT)<COOLANT_COLD;
+        Color col=hot?RED:cold?AMBER:CYAN;
+        rectF(cx0,cy0,cx1,cy1,c(0xFF10202B));
+        if(h(COOLANT)&&cf>0.01f){
+            rectF(cx0,top,cx1,cy1,al(col,hot?(int)(0x50+0x50*pulse):0x66));
             G.setColor(col); G.setStroke(new BasicStroke(2.4f));
-            GeneralPath w=new GeneralPath(); w.moveTo(cx0,top); w.quadTo((cx0+cx1)*0.5f,top-4,cx1,top);
-            G.draw(w);
+            GeneralPath w=new GeneralPath(); w.moveTo(cx0,top); w.quadTo((cx0+cx1)*0.5f,top-4,cx1,top); G.draw(w);
         }
-        G.setColor(h(COOLANT)?(col==RED?RED:WHITE):GREY); font(H*0.058f,true);
+        G.setColor(h(COOLANT)?(hot?RED:cold?AMBER:WHITE):GREY); font(H*0.062f,true);
         text(h(COOLANT)?fmt(g(COOLANT),0):"--",cooX+barW,H*0.1667f,2);
+        if(cold){ G.setColor(al(AMBER,(int)(0x80+0x7F*pulse))); font(H*0.040f,true);
+                  text(cjk?"暖車中":"WARMING",cooX+barW,H*0.208f,2); }
         // gear
-        G.setColor(h(GEAR)?CYAN:GREY); font(H*0.105f,true);
-        text(gearText(),W*0.2375f,H*0.1583f,1);
+        if(gearFlash) rectF((float)gearBox.getMinX(),(float)gearBox.getMinY(),(float)gearBox.getMaxX(),(float)gearBox.getMaxY(),c(0x333FD2FF));
+        G.setColor(h(GEAR)?(gearFlash?WHITE:CYAN):GREY); font(H*0.105f,true);
+        text(gearText(),(float)gearBox.getCenterX(),H*0.1583f,1);
+        // ev
+        boolean known=h(RPM)&&h(SPEED), moving=known&&g(SPEED)>EV_KMH, engineOff=known&&g(RPM)<EV_RPM;
+        boolean ev=moving&&engineOff;
+        if(ev) rectF((float)evBox.getMinX(),(float)evBox.getMinY(),(float)evBox.getMaxX(),(float)evBox.getMaxY(),al(GREEN,(int)(0x22+0x26*pulse)));
+        G.setColor(!known?GREY:ev?GREEN:c(0xFF2F4A44)); font(H*0.088f,true);
+        text("EV",(float)evBox.getCenterX(),H*0.152f,1);
         // steering
         float deg=g(STEER);
         G.setColor(h(STEER)?WHITE:GREY); font(H*0.0958f,true);
-        text(h(STEER)?fmt(deg,0):"--",W*0.475f,H*0.1625f,1);
+        text(h(STEER)?fmt(deg,0):"--",W*0.505f,H*0.1625f,1);
         AffineTransform old=G.getTransform();
         G.rotate(Math.toRadians(h(STEER)?deg:0),dialCx,dialCy);
-        G.setColor(h(STEER)?CYAN:GREY); G.setStroke(new BasicStroke(dialR*0.16f));
-        G.draw(new Ellipse2D.Float(dialCx-dialR*0.62f,dialCy-dialR*0.62f,dialR*1.24f,dialR*1.24f));
+        G.setColor(h(STEER)?CYAN:GREY); G.setStroke(new BasicStroke(dialR*0.17f));
+        G.draw(new Ellipse2D.Float(dialCx-dialR*0.60f,dialCy-dialR*0.60f,dialR*1.20f,dialR*1.20f));
         G.setStroke(new BasicStroke(dialR*0.13f));
-        G.draw(new Line2D.Float(dialCx-dialR*0.62f,dialCy,dialCx+dialR*0.62f,dialCy));
-        G.draw(new Line2D.Float(dialCx,dialCy,dialCx,dialCy+dialR*0.62f));
+        G.draw(new Line2D.Float(dialCx-dialR*0.60f,dialCy,dialCx+dialR*0.60f,dialCy));
+        G.draw(new Line2D.Float(dialCx,dialCy,dialCx,dialCy+dialR*0.60f));
         G.setTransform(old);
-        if(h(STEER)){
-            float f=Math.max(-1,Math.min(1,deg/STEER_FULL));
-            G.setColor(CYAN); G.setStroke(new BasicStroke(3f));
-            G.draw(new Arc2D.Float(dialCx-dialR,dialCy-dialR,dialR*2,dialR*2,90,-f*180,Arc2D.OPEN));
-        }
+        if(h(STEER)){ float f=clamp1(deg/STEER_FULL);
+            G.setColor(CYAN); G.setStroke(new BasicStroke(3.4f));
+            G.draw(new Arc2D.Float(dialCx-dialR,dialCy-dialR,dialR*2,dialR*2,90,-f*180,Arc2D.OPEN)); }
         // tyres
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; int t=tyreType[i];
             boolean ok=h(t); float psi=g(t);
-            boolean low=ok&&psi<TPMS_LOW, high=ok&&psi>TPMS_HIGH;
-            Color cc=(!ok)?GREY:(low||high)?AMBER:WHITE;
+            boolean bad=ok&&(psi<TPMS_LOW||psi>TPMS_HIGH);
+            Color cc=!ok?GREY:bad?AMBER:WHITE;
+            if(bad) rectF((float)b.getMinX(),(float)b.getMinY(),(float)b.getMaxX(),(float)b.getMaxY(),al(AMBER,(int)(0x14+0x1C*pulse)));
             G.setColor(cc); font(H*0.070f,true);
             String num=ok?fmt(psi,1):"--";
-            float nx=(float)b.getMinX()+W*0.012f, ny=(float)b.getMaxY()-H*0.018f;
-            float nw=G.getFontMetrics().stringWidth(num);
+            float nx=(float)b.getMinX()+W*0.012f, ny=(float)b.getMaxY()-H*0.018f, nw=tw(num);
             text(num,nx,ny,0);
-            G.setColor(GREY); font(H*0.040f,false);
-            text("PSI",nx+nw+W*0.012f,ny,0);
-            G.setColor(!ok?GREY:(low||high)?AMBER:GREEN);
-            float r2=H*0.014f;
-            G.fill(new Ellipse2D.Float((float)b.getMaxX()-W*0.018f-r2,(float)b.getMinY()+H*0.032f-r2,r2*2,r2*2));
+            G.setColor(GREY); font(H*0.040f,false); text("PSI",nx+nw+W*0.012f,ny,0);
+            G.setColor(!ok?GREY:bad?AMBER:GREEN);
+            float rr=H*0.013f;
+            G.fill(new Ellipse2D.Float((float)b.getMaxX()-W*0.018f-rr,(float)b.getMinY()+H*0.030f-rr,rr*2,rr*2));
         }
+        // friction circle
+        boolean gok=h(G_LAT)||h(G_LONG);
+        G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.4f));
+        G.draw(new Ellipse2D.Float(gCx-gR,gCy-gR,gR*2,gR*2));
+        G.draw(new Ellipse2D.Float(gCx-gR*0.5f,gCy-gR*0.5f,gR,gR));
+        G.draw(new Line2D.Float(gCx-gR,gCy,gCx+gR,gCy)); G.draw(new Line2D.Float(gCx,gCy-gR,gCx,gCy+gR));
+        if(gok){
+            for(int i=trailN-1;i>0;i--){
+                float a=1f-(float)i/TRAIL; float rad=1.5f+2.2f*a;
+                G.setColor(al(CYAN,(int)(0x10+0x55*a*a)));
+                G.fill(new Ellipse2D.Float(gCx+clamp1(trailX[i])*gR-rad,gCy+clamp1(trailY[i])*gR-rad,rad*2,rad*2));
+            }
+            G.setColor(WHITE);
+            G.fill(new Ellipse2D.Float(gCx+clamp1(trailX[0])*gR-4.2f,gCy+clamp1(trailY[0])*gR-4.2f,8.4f,8.4f));
+        }
+        float lx=gCx+gR+W*0.018f;
+        G.setColor(GREY); font(H*0.036f,false); text(cjk?"G 最大":"PEAK G",lx,gCy-H*0.010f,0);
+        G.setColor(gok?CYAN:GREY); font(H*0.052f,true);
+        text(gok?fmt(maxG,2):"--",lx,gCy+H*0.052f,0);
         // pedals
         float m=(pedalL+pedalR)*0.5f, half=(pedalR-pedalL)*0.5f-3f;
-        float brk=h(BRAKE)?Math.max(0,Math.min(1,g(BRAKE)/PEDAL_FULL)):0f;
-        if(brk>0.005f){
-            G.setColor(new Color(255,69,69,0x66)); G.fill(new Rectangle2D.Float(m-half*brk,pedalY0+3,half*brk-2,pedalY1-pedalY0-6));
-            G.setColor(RED); G.fill(new Rectangle2D.Float(m-half*brk,pedalY0+3,4,pedalY1-pedalY0-6));
-        }
-        float thr=h(ACCEL)?Math.max(0,Math.min(1,g(ACCEL)/1000f)):0f;
-        if(thr>0.005f){
-            G.setColor(new Color(63,210,255,0x66)); G.fill(new Rectangle2D.Float(m+2,pedalY0+3,half*thr-2,pedalY1-pedalY0-6));
-            G.setColor(CYAN); G.fill(new Rectangle2D.Float(m+half*thr-4,pedalY0+3,4,pedalY1-pedalY0-6));
-        }
+        float brk=h(BRAKE)?Math.max(0,Math.min(1,g(BRAKE)/BRAKE_FULL)):0f;
+        if(brk>0.005f){ rectF(m-half*brk,pedalY0+3,m-2,pedalY1-3,al(RED,0x66));
+                        rectF(m-half*brk,pedalY0+3,m-half*brk+4,pedalY1-3,RED); }
+        float thr=h(ACCEL)?Math.max(0,Math.min(1,g(ACCEL)/ACCEL_FULL)):0f;
+        if(thr>0.005f){ rectF(m+2,pedalY0+3,m+half*thr,pedalY1-3,al(CYAN,0x66));
+                        rectF(m+half*thr-4,pedalY0+3,m+half*thr,pedalY1-3,CYAN); }
         float net=thr-brk;
         if(Math.abs(net)>0.02f){
             boolean up=net>0; float mag=Math.abs(net);
@@ -248,34 +269,55 @@ public class Preview {
                     a.lineTo(carCx+aw*0.42f,ay-ah); a.lineTo(carCx-aw*0.42f,ay-ah);
                     a.lineTo(carCx-aw*0.42f,ay-ah*0.30f); a.lineTo(carCx-aw,ay-ah*0.30f); }
             a.closePath();
-            G.setColor(up?new Color(63,210,255,0x55):new Color(255,69,69,0x55)); G.fill(a);
+            G.setColor(al(up?CYAN:RED,0x55)); G.fill(a);
             G.setColor(up?CYAN:RED); G.setStroke(new BasicStroke(2f)); G.draw(a);
         }
         // speed
-        G.setColor(h(SPEED)?WHITE:GREY); font(H*0.129f,true);
-        text(h(SPEED)?fmt(g(SPEED),0):"--",W*0.80f,H*0.929f,1);
-        // odo
-        font(H*0.038f,false); G.setColor(GREY);
-        text(cjk?"總里程 km":"ODO km",W*0.11f,H*0.8167f,0);
-        G.setColor(CYAN); font(H*0.038f,true);
-        text(h(ODO)?fmt(g(ODO),0):"--",W*0.11f,H*0.8833f,0);
+        G.setColor(h(SPEED)?WHITE:GREY); font(H*0.145f,true);
+        text(h(SPEED)?fmt(g(SPEED),0):"--",W*0.80f,H*0.935f,1);
+    }
+
+    static void seedTrail(float lat,float lon,boolean corner){
+        trailN=TRAIL;
+        for(int i=0;i<TRAIL;i++){
+            float u=i/(float)TRAIL;
+            if(corner){ double a=Math.PI*0.55-u*1.5; float rad=(float)(0.62-u*0.30);
+                        trailX[i]=(float)(Math.cos(a)*rad); trailY[i]=(float)(-Math.sin(a)*rad); }
+            else { trailX[i]=lat*(1-u*0.85f); trailY[i]=lon*(1-u*0.85f); }
+        }
+        trailX[0]=lat; trailY[0]=lon;
     }
 
     public static void main(String[] a) throws Exception {
-        boolean warn = a.length>0 && a[0].equals("warn");
+        String mode = a.length>0?a[0]:"normal";
         cjk = !(a.length>1 && a[1].equals("en"));
         layout();
-        set(RPM, warn?6900f:3120f); set(COOLANT, warn?109f:88f); set(SPEED, warn?118f:64f);
-        set(GEAR,4f); set(ACCEL, warn?0f:340f); set(BRAKE, warn?62f:0f);
-        set(STEER, warn?-148f:12f); set(ODO,48213f);
-        set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR, warn?27.5f:38.2f);
+        if(mode.equals("warn")){
+            pulse=1f; peak=0.99f; maxG=0.94f; gearFlash=false;
+            set(RPM,6900f); set(COOLANT,109f); set(SPEED,118f); set(GEAR,21f);
+            set(ACCEL,0f); set(BRAKE,62f); set(STEER,-148f);
+            set(G_LAT,-0.35f); set(G_LONG,0.88f); seedTrail(-0.35f,0.88f,true);
+            set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,27.5f);
+        } else if(mode.equals("ev")){
+            pulse=1f; peak=0.22f; maxG=0.18f; gearFlash=false;
+            set(RPM,0f); set(COOLANT,52f); set(SPEED,31f); set(GEAR,4f);
+            set(ACCEL,120f); set(BRAKE,0f); set(STEER,-4f);
+            set(G_LAT,0.05f); set(G_LONG,-0.03f); seedTrail(0.05f,-0.03f,false);
+            set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,38.2f);
+        } else {
+            pulse=0.6f; peak=0.62f; maxG=0.47f; gearFlash=false;
+            set(RPM,3120f); set(COOLANT,88f); set(SPEED,64f); set(GEAR,4f);
+            set(ACCEL,340f); set(BRAKE,0f); set(STEER,12f);
+            set(G_LAT,0.32f); set(G_LONG,-0.18f); seedTrail(0.32f,-0.18f,true);
+            set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,38.2f);
+        }
         BufferedImage img=new BufferedImage(800,480,BufferedImage.TYPE_INT_RGB);
         G=img.createGraphics();
         G.setRenderingHint(RenderingHints.KEY_ANTIALIASING,RenderingHints.VALUE_ANTIALIAS_ON);
         G.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         G.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,RenderingHints.VALUE_STROKE_PURE);
         drawStatic(); drawLive();
-        String name = warn?"dash-warn.png":(cjk?"dash-normal.png":"dash-en.png");
+        String name="dash-"+mode+(cjk?"":"-en")+".png";
         ImageIO.write(img,"png",new File(name));
         System.out.println("wrote "+name);
     }
