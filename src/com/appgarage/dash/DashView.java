@@ -173,8 +173,9 @@ public class DashView extends View {
         dialCx = W * 0.80f;
         dialCy = H * 0.1083f;
 
-        carW = W * 0.2375f;
-        carH = H * 0.43f;
+        // the supplied drawing is taller than it is wide, so height is what limits it
+        carW = W * 0.255f;
+        carH = H * 0.46f;
         carCx = W * 0.5f;
         carCy = H * 0.555f;
 

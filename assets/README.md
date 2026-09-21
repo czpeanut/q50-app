@@ -6,12 +6,27 @@ Drop your own drawing in here as `car.png` and it replaces the placeholder outli
 `DashView.drawCar()` draws. No code change is needed: the screen loads this file if it exists
 and falls back to the vector placeholder if it does not.
 
-**Format**
+## Replacing it
 
-- PNG with a **transparent background**, so the starfield and the tyre callout leader lines
-  stay visible behind it.
+Do not hand-edit the PNG. Draw however you like -- light strokes on a dark background, saved
+as a JPEG, is fine and is what the current one started as -- and run the converter:
+
+```
+javac -d build/tools tools/MakeCarAsset.java
+java -cp build/tools MakeCarAsset my-drawing.jpg assets/car.png
+```
+
+It keys the dark background out by turning brightness into opacity, subtracts a floor first so
+JPEG noise across the black does not survive as a dirty rectangle, tints the strokes to the
+screen's cyan while keeping the brightest cores near white, crops to the content, and scales
+the result down to something the app will actually draw.
+
+**Format, if you would rather prepare the file yourself**
+
+- PNG with a **transparent background**, so the pool of light, the arcs and the starfield stay
+  visible behind it.
 - Drawn in the screen's cyan (`#3FD2FF`) or close to it. The image is blitted as-is and is not
-  tinted, so its own colours are what you get.
+  tinted at runtime, so its own colours are what you get.
 - Roughly **400 × 480** is plenty. It is scaled to fit a box about 190 × 220 on the panel,
   preserving aspect ratio and centred, so anything larger is wasted memory and anything much
   smaller will look soft.

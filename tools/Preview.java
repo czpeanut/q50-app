@@ -49,7 +49,7 @@ public class Preview {
         gearBox=new Rectangle2D.Float(W*0.1875f,H*0.0583f,W*0.10f,H*0.125f);
         evBox  =new Rectangle2D.Float(W*0.305f, H*0.0583f,W*0.10f,H*0.125f);
         dialR=H*0.0833f; dialCx=W*0.80f; dialCy=H*0.1083f;
-        carW=W*0.2375f; carH=H*0.43f; carCx=W*0.5f; carCy=H*0.555f;
+        carW=W*0.255f; carH=H*0.46f; carCx=W*0.5f; carCy=H*0.555f;
         float bw=W*0.1875f,bh=H*0.125f,leftX=W*0.11f,rightX=W*0.7025f,topY=H*0.335f,botY=H*0.585f;
         tyreBox[0]=new Rectangle2D.Float(leftX,topY,bw,bh);
         tyreBox[1]=new Rectangle2D.Float(rightX,topY,bw,bh);
