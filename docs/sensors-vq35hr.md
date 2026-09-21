@@ -18,6 +18,22 @@ The closest substitute is **type 26 `VS_ID_REGENERATION`**, which is the only po
 signal present. Whether it is actually fed on this car is not answerable from the inventory —
 that needs live values, which is what `SensorWatchActivity` exists to find out.
 
+## Confirmed on-car (measured, not inferred)
+
+| Type | Result |
+|---|---|
+| 17 `VEHICLE_SPEED` | **raw value is km/h directly.** The original notes were right; the `max=655340` reading was not a clue to anything. |
+| 25 `STEERING_ANGLE` | **raw value is degrees directly**, signed, roughly **±390 at full lock**, carrying one decimal. Note this is *not* the 0.1-degree unit the `resolution` field implies — 390 raw is 390°, matching the quick DAS rack. |
+| 26 `REGENERATION` | **delivered no events at all.** Declared in the inventory, never fed. |
+
+With 26 dead and no battery signal in the list, **nothing in the Sensor API carries hybrid
+state**. The remaining route is inference: type 13 reading 0 rpm while type 17 shows road speed
+means the car is under electric drive, and both of those signals are confirmed.
+
+Storage: the first write probe found nothing writable, including `getFilesDir()`, which should
+never fail. The probe now records the reason per path and additionally tests every mount point
+in `/proc/mounts` rather than guessing paths.
+
 ## `maximumRange` is only sometimes real
 
 Types **12, 13, 16 and 32 all report `max=879.0`** — a shared placeholder, since 879 rpm is
@@ -39,7 +55,7 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 | 14 | `VS_ID_ENGINE_COOLANT_TEMPERATURE` | 214.0 | 1.0 | °C direct |
 | 15 | `VS_ID_ENGINE_OIL_TEMPERATURE` | 205.0 | 1.0 | reported −50 at rest on this car |
 | 16 | `VS_ID_ENGINE_OIL_PRESSURE` | 879.0 | 1.0 | placeholder max; MPa on VR30 |
-| 17 | `VS_ID_VEHICLE_SPEED` | 655340.0 | 1.0 | **scaling suspect** — range far exceeds km/h |
+| 17 | `VS_ID_VEHICLE_SPEED` | 655340.0 | 1.0 | **confirmed km/h directly** — the max field meant nothing |
 | 18 | `VS_ID_DISTANCE_TO_EMPTY` | 6553400.0 | 1.0 | not in the original notes |
 | 19 | `VS_ID_FUEL_CONSUMPTION_FINE` | 2048000.0 | 0.001 | fine-grained instantaneous |
 | 20 | `VS_ID_TRANSVERSAL_ACCELERATION` | 2000.0 | 1.0 | **scaling suspect** — 1 g full-scale was a guess |
@@ -47,8 +63,8 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 | 22 | `VS_ID_GEAR_POSITION` | −0.0 | −0.0 | enum, confirmed on-car |
 | 23 | `VS_ID_ACCELERATOR_PEDAL_POSITION` | 1000.0 | 0.001 | **pedal, not throttle** — distinct on a hybrid |
 | 24 | `VS_ID_BRAKE_PEDAL_POSITION` | 90.0 | 1.0 | not in the original notes; the control input for regen testing |
-| 25 | `VS_ID_STEERING_ANGLE` | 9000.0 | 0.1 | **present** — ±900° at 0.1° |
-| 26 | `VS_ID_REGENERATION` | 63500.0 | 1.0 | **the one hybrid-adjacent signal; 16-bit range suggests offset encoding** |
+| 25 | `VS_ID_STEERING_ANGLE` | 9000.0 | 0.1 | **confirmed: degrees directly, ±390 at full lock, 1 decimal** |
+| 26 | `VS_ID_REGENERATION` | 63500.0 | 1.0 | **dead — declared but never delivers an event** |
 | 27 | `VS_ID_ILLUMI` | −0.0 | −0.0 | enum, day/night illumination |
 | 28 | `VS_ID_ECO_MODE` | −0.0 | −0.0 | enum; drive-mode candidate |
 | 29 | `VS_ID_FUEL_CONSUMPTION_HISTORY` | 200000.0 | 1.0 | |
@@ -83,4 +99,7 @@ the sharper frame showed. Re-read them on the unit before relying on either.
 - Type 23 is the **accelerator pedal position**, not throttle opening. On a hybrid these
   diverge: pedal travel with the engine off produces no throttle angle at all.
 - Types 36–39 are FR/FL/RR/RL in that order, matching `GaugeView`'s existing constants.
-- `maximumRange` cannot be used for calibration (see above).
+- `maximumRange` cannot be used for calibration (see above). Type 17 settled this: its max
+  reads 655340 and its raw value is plain km/h, so the field is not even a scaled bound.
+- Type 25's raw value is degrees, not the 0.1-degree unit `resolution` suggests. `resolution`
+  describes the precision of the number, not its unit.

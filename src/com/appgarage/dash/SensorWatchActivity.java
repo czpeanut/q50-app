@@ -19,11 +19,14 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.FileReader;
 import java.io.File;
 import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Live signal watcher for the VQ35HR Hybrid, with three jobs:
@@ -58,12 +61,26 @@ public class SensorWatchActivity extends Activity
     private static final long MAX_ROWS = 400000;    // ~28 h at 4 Hz; a forgotten recording
                                                     // must not be able to fill the unit
 
-    /** The signals with open questions, shown large at the top. */
-    private static final int[] WATCH = { 26, 13, 31, 17, 25, 28, 23, 24 };
+    /**
+     * The signals with open questions, shown large at the top.
+     *
+     * Confirmed on-car so far: 17 is km/h directly (so maximumRange 655340 was meaningless,
+     * as were all the other max fields), and 25 is degrees directly, +-390 at full lock, with
+     * one decimal -- not the 0.1-degree units the resolution field suggested.
+     *
+     * 26 stays on the list only so a second look costs nothing while driving; it delivered no
+     * events at all on the first attempt, which leaves nothing in the inventory carrying
+     * hybrid state. 28 and the two G axes are still untested.
+     */
+    private static final int[] WATCH = { 13, 17, 25, 26, 28, 23, 24, 20, 21 };
     private static final String[] WATCH_LABEL = {
-        "26 REGEN", "13 RPM", "31 FUEL_NOW", "17 SPEED",
-        "25 STEER", "28 ECO_MODE", "23 ACCEL", "24 BRAKE"
+        "13 RPM", "17 SPEED", "25 STEER", "26 REGEN", "28 ECO_MODE",
+        "23 ACCEL", "24 BRAKE", "20 G_LAT", "21 G_LONG"
     };
+
+    /** engine considered off below this; the hybrid sits at a true 0 rpm in EV drive */
+    private static final float EV_RPM = 50f;
+    private static final float EV_KMH = 3f;
 
     private final float[] now = new float[N];
     private final float[] lo = new float[N];
@@ -77,8 +94,11 @@ public class SensorWatchActivity extends Activity
     private final StringBuilder sb = new StringBuilder(8192);
 
     private TextView bigTv, allTv, statusTv;
-    private Button resetBtn, recBtn, listBtn;
+    private Button resetBtn, recBtn, diagBtn, listBtn;
 
+    private boolean showDiag;
+    private String diagText = "";
+    private final List<String> probeLog = new ArrayList<String>();
     private final List<File> writable = new ArrayList<File>();
     private BufferedWriter writer;
     private File logFile;
@@ -98,8 +118,9 @@ public class SensorWatchActivity extends Activity
 
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
-        resetBtn = addButton(bar, "RESET MIN/MAX");
+        resetBtn = addButton(bar, "RESET");
         recBtn = addButton(bar, "REC");
+        diagBtn = addButton(bar, "STORAGE?");
         listBtn = addButton(bar, "LIST");
         root.addView(bar, wrap());
 
@@ -211,22 +232,39 @@ public class SensorWatchActivity extends Activity
 
     private void render() {
         sb.setLength(0);
-        sb.append("now / min / max / update count   -- \"no data yet\" after a few seconds");
-        sb.append(" means the signal is declared but never fed\n");
+        sb.append(evLine()).append('\n');
         for (int i = 0; i < WATCH.length; i++) appendRow(WATCH[i], WATCH_LABEL[i], 13);
         bigTv.setText(sb.toString());
 
-        sb.setLength(0);
-        sb.append(types.length).append(" signals   elapsed ")
-          .append((System.currentTimeMillis() - started) / 1000).append(" s\n");
-        for (int i = 0; i < types.length; i++) {
-            int t = types[i];
-            sb.append(t < 10 ? " " : "").append(t).append(' ');
-            appendRow(t, name[t] == null ? "?" : name[t], 26);
+        if (showDiag) {
+            allTv.setText(diagText);
+        } else {
+            sb.setLength(0);
+            sb.append(types.length).append(" signals   elapsed ")
+              .append((System.currentTimeMillis() - started) / 1000).append(" s\n");
+            for (int i = 0; i < types.length; i++) {
+                int t = types[i];
+                sb.append(t < 10 ? " " : "").append(t).append(' ');
+                appendRow(t, name[t] == null ? "?" : name[t], 26);
+            }
+            allTv.setText(sb.toString());
         }
-        allTv.setText(sb.toString());
 
         statusTv.setText(status());
+    }
+
+    /**
+     * Derived EV-drive indicator: rolling with the engine at a standstill is the one piece of
+     * hybrid state still reachable, now that nothing in the inventory reports the battery.
+     * It needs no new signal -- types 13 and 17 are both confirmed.
+     */
+    private String evLine() {
+        if (hits[13] == 0 || hits[17] == 0) return "now / min / max / updates";
+        boolean moving = now[17] > EV_KMH;
+        boolean engineOff = now[13] < EV_RPM;
+        if (moving && engineOff) return "now / min / max / updates      >>> EV DRIVE <<<";
+        if (moving) return "now / min / max / updates      engine running";
+        return "now / min / max / updates      stationary";
     }
 
     /** one "label now min max n=" row, columns aligned from the start of the line */
@@ -277,7 +315,7 @@ public class SensorWatchActivity extends Activity
     private String status() {
         if (note.length() > 0) return note;
         if (writer != null) return "REC -> " + logFile.getAbsolutePath() + "   rows=" + rows;
-        if (writable.isEmpty()) return "WRITE TEST: no writable directory found -- CSV logging unavailable";
+        if (writable.isEmpty()) return "WRITE TEST: nothing writable -- press STORAGE? for the reason per path";
         StringBuilder s = new StringBuilder("WRITE TEST OK: ");
         for (int i = 0; i < writable.size(); i++) {
             if (i > 0) s.append("  |  ");
@@ -288,46 +326,133 @@ public class SensorWatchActivity extends Activity
 
     // ---------------------------------------------------------------- storage
 
+    /**
+     * Probe everything that could hold a log file, and -- unlike the first attempt -- record
+     * WHY each candidate failed. Swallowing the exceptions turned "no writable directory"
+     * into a dead end: getFilesDir() needs no permission and should never fail, so the
+     * failure itself is the interesting part.
+     *
+     * Guessing USB mount paths was also the wrong approach. /proc/mounts says where this
+     * firmware actually mounts things, so every mount point it lists gets probed too.
+     */
     private void probeStorage() {
         writable.clear();
-        addIfWritable(getFilesDir());
-        try { addIfWritable(Environment.getExternalStorageDirectory()); } catch (Throwable ignored) {}
-        // the unit is a USB host for the App Garage loader, so a stick is mounted somewhere;
-        // the exact path differs per firmware, hence the spread of candidates
+        probeLog.clear();
+        try {
+            probeLog.add("externalStorageState = " + Environment.getExternalStorageState());
+        } catch (Throwable t) { probeLog.add("externalStorageState threw " + t); }
+
+        probe(getFilesDir(), "getFilesDir");
+        try { probe(Environment.getExternalStorageDirectory(), "externalStorageDir"); }
+        catch (Throwable t) { probeLog.add("externalStorageDir threw " + t); }
+
         String[] paths = {
             "/sdcard", "/mnt/sdcard", "/mnt/usb", "/mnt/usbdisk", "/mnt/udisk",
             "/mnt/usb_storage", "/mnt/usbhost1", "/mnt/sda1", "/mnt/external_sd",
-            "/storage/usb", "/data/local/tmp"
+            "/storage/usb", "/data/local/tmp", "/cache"
         };
-        for (int i = 0; i < paths.length; i++) addIfWritable(new File(paths[i]));
+        for (int i = 0; i < paths.length; i++) probe(new File(paths[i]), "guess");
+
+        List<String> mounts = readMounts();
+        for (int i = 0; i < mounts.size(); i++) {
+            String m = mounts.get(i);
+            // /dev, /sys and friends accept a file and are still nowhere to put a log
+            if (m.startsWith("/dev") || m.startsWith("/sys") || m.startsWith("/proc")
+                    || m.startsWith("/run") || m.equals("/")) continue;
+            probe(new File(m), "mount");
+        }
     }
 
-    private void addIfWritable(File dir) {
-        if (dir == null) return;
+    /** mount points from /proc/mounts, minus the pseudo-filesystems that can never hold a file */
+    private List<String> readMounts() {
+        List<String> out = new ArrayList<String>();
+        BufferedReader r = null;
         try {
-            if (!dir.isDirectory()) return;
+            r = new BufferedReader(new FileReader("/proc/mounts"));
+            String line;
+            while ((line = r.readLine()) != null && out.size() < 64) {
+                String[] f = line.split(" ");
+                if (f.length < 3) continue;
+                String point = f[1], type = f[2];
+                if (type.equals("proc") || type.equals("sysfs") || type.equals("devpts")
+                        || type.equals("cgroup") || type.equals("debugfs")
+                        || type.equals("usbfs") || type.equals("rootfs")) continue;
+                out.add(point);
+            }
+        } catch (Throwable t) {
+            probeLog.add("/proc/mounts unreadable: " + t);
+        } finally {
+            try { if (r != null) r.close(); } catch (Throwable ignored) {}
+        }
+        return out;
+    }
+
+    private void probe(File dir, String how) {
+        if (dir == null) { probeLog.add(how + ": null"); return; }
+        String path = dir.getAbsolutePath();
+        try {
             String canon = dir.getCanonicalPath();
             for (int i = 0; i < writable.size(); i++) {
-                if (writable.get(i).getCanonicalPath().equals(canon)) return;   // symlink dupe
+                if (writable.get(i).getCanonicalPath().equals(canon)) return;   // already have it
             }
-            File probe = new File(dir, "dash_wtest.tmp");
-            FileWriter w = new FileWriter(probe);
+            if (!dir.isDirectory()) {
+                if (!how.equals("guess")) probeLog.add("NO  " + path + "  (not a directory)");
+                return;
+            }
+            File p = new File(dir, "dash_wtest.tmp");
+            FileWriter w = new FileWriter(p);
             w.write("x");
             w.close();
-            boolean ok = probe.exists() && probe.length() > 0;
-            probe.delete();
-            if (ok) writable.add(dir);
-        } catch (Throwable ignored) {}
+            boolean ok = p.exists() && p.length() > 0;
+            p.delete();
+            if (ok) { writable.add(dir); probeLog.add("OK  " + path + "  [" + how + "]"); }
+            else probeLog.add("NO  " + path + "  (wrote nothing)");
+        } catch (Throwable t) {
+            probeLog.add("NO  " + path + "  " + t);
+        }
     }
 
-    /** prefer removable media so the CSV can just be carried indoors */
+    private void buildDiag() {
+        StringBuilder d = new StringBuilder(4096);
+        d.append("STORAGE PROBE -- every candidate and why it failed\n");
+        d.append("if nothing here is writable, CSV logging is impossible on this unit\n\n");
+        for (int i = 0; i < probeLog.size(); i++) d.append(probeLog.get(i)).append('\n');
+        File pick = pickLogDir();
+        d.append("\nREC would write to: ").append(pick == null ? "nowhere" : pick.getAbsolutePath()).append('\n');
+        d.append("\n/proc/mounts\n");
+        BufferedReader r = null;
+        try {
+            r = new BufferedReader(new FileReader("/proc/mounts"));
+            String line;
+            int n = 0;
+            while ((line = r.readLine()) != null && n++ < 60) d.append(line).append('\n');
+        } catch (Throwable t) {
+            d.append("unreadable: ").append(t).append('\n');
+        } finally {
+            try { if (r != null) r.close(); } catch (Throwable ignored) {}
+        }
+        diagText = d.toString();
+    }
+
+    /** prefer removable media, so the CSV can just be carried indoors on the stick */
     private File pickLogDir() {
-        File internal = getFilesDir();
+        File best = null;
+        int bestScore = -1;
         for (int i = 0; i < writable.size(); i++) {
             File f = writable.get(i);
-            if (internal == null || !f.getAbsolutePath().equals(internal.getAbsolutePath())) return f;
+            int score = scoreDir(f.getAbsolutePath());
+            if (score > bestScore) { bestScore = score; best = f; }
         }
-        return writable.isEmpty() ? null : writable.get(0);
+        return best;
+    }
+
+    private static int scoreDir(String path) {
+        String p = path.toLowerCase(Locale.US);
+        if (p.indexOf("usb") >= 0 || p.indexOf("sda") >= 0 || p.indexOf("udisk") >= 0) return 4;
+        if (p.indexOf("sdcard") >= 0 || p.indexOf("storage") >= 0 || p.indexOf("media") >= 0) return 3;
+        if (p.indexOf("/data/data/") >= 0) return 2;        // the app's own directory
+        if (p.indexOf("tmp") >= 0 || p.indexOf("cache") >= 0) return 1;  // survives, but not a reboot
+        return 0;
     }
 
     private void startRecording() {
@@ -385,6 +510,10 @@ public class SensorWatchActivity extends Activity
             note = "";
         } else if (v == recBtn) {
             if (writer == null) startRecording(); else stopRecording("");
+        } else if (v == diagBtn) {
+            showDiag = !showDiag;
+            if (showDiag) { probeStorage(); buildDiag(); }       // re-probe: a stick may have
+            diagBtn.setText(showDiag ? "SIGNALS" : "STORAGE?");  // been plugged in since boot
         } else if (v == listBtn) {
             try { startActivity(new Intent(this, SensorListActivity.class)); }
             catch (Throwable t) { note = "cannot open list: " + t; }
