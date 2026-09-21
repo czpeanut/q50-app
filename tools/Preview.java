@@ -1,5 +1,6 @@
 import java.awt.*;
 import java.awt.geom.*;
+import java.awt.MultipleGradientPaint;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.awt.image.BufferedImage;
@@ -68,15 +69,83 @@ public class Preview {
     }
     static void rectF(float l,float t,float r,float b,Color col){ G.setColor(col); G.fill(new Rectangle2D.Float(l,t,r-l,b-t)); }
     static void rectS(float l,float t,float r,float b,Color col,float sw){ G.setColor(col); G.setStroke(new BasicStroke(sw)); G.draw(new Rectangle2D.Float(l,t,r-l,b-t)); }
+    static void corners(float l,float t,float r,float b,float len){
+        G.draw(new Line2D.Float(l,t+len,l,t)); G.draw(new Line2D.Float(l,t,l+len,t));
+        G.draw(new Line2D.Float(r-len,t,r,t)); G.draw(new Line2D.Float(r,t,r,t+len));
+        G.draw(new Line2D.Float(l,b-len,l,b)); G.draw(new Line2D.Float(l,b,l+len,b));
+        G.draw(new Line2D.Float(r-len,b,r,b)); G.draw(new Line2D.Float(r,b,r,b-len));
+    }
     static void frame(float l,float t,float r,float b){
-        rectF(l,t,r,b,PANEL); rectS(l,t,r,b,c(0x553FD2FF),3.2f); rectS(l,t,r,b,CYAN_DIM,1.4f);
+        G.setPaint(new GradientPaint(0,t,c(0xD8101E2C),0,b,PANEL));
+        G.fill(new Rectangle2D.Float(l,t,r-l,b-t));
+        G.setPaint(null); rectS(l,t,r,b,c(0x4A2F5E74),1.1f);
+        float len=Math.min(Math.min(r-l,b-t)*0.26f,16f);
+        G.setColor(c(0x553FD2FF)); G.setStroke(new BasicStroke(2.4f)); corners(l,t,r,b,len);
+        G.setColor(CYAN); G.setStroke(new BasicStroke(1.2f)); corners(l,t,r,b,len);
     }
     static void frame(Rectangle2D.Float b){ frame((float)b.getMinX(),(float)b.getMinY(),(float)b.getMaxX(),(float)b.getMaxY()); }
+    static void backdrop(){
+        G.setPaint(new LinearGradientPaint(new Point2D.Float(0,0),new Point2D.Float(0,H),
+            new float[]{0f,0.28f,0.72f,1f},
+            new Color[]{c(0xFF05080F),BG_TOP,c(0xFF0E1826),BG_BOT}));
+        G.fillRect(0,0,(int)W,(int)H);
+        G.setPaint(new RadialGradientPaint(new Point2D.Float(W*0.5f,H*0.46f),W*0.72f,
+            new float[]{0f,0.55f,1f},
+            new Color[]{new Color(0,0,0,0),new Color(0,0,0,0),new Color(0,0,0,0x5C)}));
+        G.fillRect(0,0,(int)W,(int)H);
+        G.setPaint(null);
+    }
+    static void arcs(){
+        for(int i=0;i<6;i++){
+            float rad=carW*(0.95f+i*0.30f);
+            G.setColor(al(CYAN,0x14-i*2));
+            G.setStroke(new BasicStroke(i==2?1.6f:1.0f));
+            G.draw(new Arc2D.Float(carCx-rad,carCy-rad,rad*2,rad*2,-340,140,Arc2D.OPEN));
+            G.draw(new Arc2D.Float(carCx-rad,carCy-rad,rad*2,rad*2,-160,140,Arc2D.OPEN));
+        }
+    }
+    static void starfield(){
+        Random rnd=new Random(20260921L);
+        for(int i=0;i<170;i++){
+            float x=rnd.nextFloat()*W,y=rnd.nextFloat()*H,rad=0.4f+rnd.nextFloat()*1.0f;
+            G.setColor(c(0xFF000000|(0x18242F+rnd.nextInt(0x2C3C4C))));
+            G.fill(new Ellipse2D.Float(x-rad,y-rad,rad*2,rad*2));
+        }
+        for(int i=0;i<9;i++){
+            float x=rnd.nextFloat()*W,y=rnd.nextFloat()*H;
+            G.setColor(c(0x443FD2FF)); G.fill(new Ellipse2D.Float(x-2.4f,y-2.4f,4.8f,4.8f));
+            G.setColor(c(0xAA8FE4FF)); G.fill(new Ellipse2D.Float(x-0.9f,y-0.9f,1.8f,1.8f));
+            G.setColor(c(0x333FD2FF)); G.setStroke(new BasicStroke(0.8f));
+            G.draw(new Line2D.Float(x-4,y,x+4,y)); G.draw(new Line2D.Float(x,y-4,x,y+4));
+        }
+    }
+    static void pool(){
+        G.setPaint(new RadialGradientPaint(new Point2D.Float(carCx,carCy),carW*1.25f,
+            new float[]{0f,0.45f,1f},
+            new Color[]{c(0x2A3FD2FF),c(0x0E3FD2FF),new Color(0,0,0,0)}));
+        G.fill(new Rectangle2D.Float(carCx-carW*1.3f,carCy-carW*1.3f,carW*2.6f,carW*2.6f));
+        G.setPaint(null);
+    }
+    static void columnScale(float edgeX,boolean leftOf,int div){
+        float inner=barW*0.18f, y0=rpmY0+inner, y1=rpmY1-inner;
+        for(int i=0;i<=div*2;i++){
+            boolean major=(i%2)==0;
+            float y=y1-(y1-y0)*i/(div*2f), len=major?7f:3.5f;
+            G.setStroke(new BasicStroke(major?1.6f:1.0f));
+            G.setColor(c(major?0x993FD2FF:0x443FD2FF));
+            if(leftOf) G.draw(new Line2D.Float(edgeX-3-len,y,edgeX-3,y));
+            else G.draw(new Line2D.Float(edgeX+3,y,edgeX+3+len,y));
+        }
+    }
     static void label(String s,float cx,float base){ G.setColor(GREY); font(H*0.042f,false); text(s,cx,base,1); }
     static String fmt(float val,int dec){ return dec==0?String.valueOf(Math.round(val)):String.format("%."+dec+"f",val); }
     static void glow(Shape s,Color col,float w){
-        G.setColor(al(col,0x40)); G.setStroke(new BasicStroke(w,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(s);
-        G.setColor(col); G.setStroke(new BasicStroke(w*0.28f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(s);
+        int[] a={0x14,0x24,0x48,0xFF}; float[] m={1.9f,1.15f,0.62f,0.26f};
+        for(int i=0;i<4;i++){
+            G.setColor(al(col,a[i]));
+            G.setStroke(new BasicStroke(w*m[i],BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND));
+            G.draw(s);
+        }
     }
     static String tyreLabel(int i){
         if(cjk){ switch(i){ case 0: return "左前胎壓"; case 1: return "右前胎壓";
@@ -133,14 +202,8 @@ public class Preview {
     }
 
     static void drawStatic(){
-        G.setPaint(new GradientPaint(0,0,BG_TOP,0,H,BG_BOT)); G.fillRect(0,0,(int)W,(int)H);
-        Random rnd=new Random(20260921L);
-        for(int i=0;i<150;i++){
-            float x=rnd.nextFloat()*W,y=rnd.nextFloat()*H,rad=0.4f+rnd.nextFloat()*1.0f;
-            G.setColor(c(0xFF000000|(0x1A2836+rnd.nextInt(0x283848))));
-            G.fill(new Ellipse2D.Float(x-rad,y-rad,rad*2,rad*2));
-        }
-        drawCar();
+        backdrop(); arcs(); starfield(); pool(); drawCar();
+        columnScale(rpmX+barW,false,8); columnScale(cooX,true,4);
         frame(rpmX,rpmY0,rpmX+barW,rpmY1); frame(cooX,rpmY0,cooX+barW,rpmY1);
         G.setColor(WHITE); font(H*0.071f,false);
         text(cjk?"轉速":"RPM",rpmX,H*0.0833f,0);
@@ -148,16 +211,26 @@ public class Preview {
         frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),H*0.0458f);
         frame(evBox);   label(cjk?"純電":"ELECTRIC",(float)evBox.getCenterX(),H*0.0458f);
         label(cjk?"轉向角":"STEERING",W*0.655f,H*0.0458f);
-        G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.6f));
+        G.setColor(c(0x223FD2FF)); G.setStroke(new BasicStroke(5f));
         G.draw(new Ellipse2D.Float(dialCx-dialR,dialCy-dialR,dialR*2,dialR*2));
-        for(int i=0;i<12;i++){ double a=Math.PI*2*i/12.0;
-            G.draw(new Line2D.Float(dialCx+(float)Math.cos(a)*dialR*0.84f,dialCy+(float)Math.sin(a)*dialR*0.84f,
+        G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.4f));
+        G.draw(new Ellipse2D.Float(dialCx-dialR,dialCy-dialR,dialR*2,dialR*2));
+        for(int i=0;i<24;i++){ double a=Math.PI*2*i/24.0; boolean major=(i%6)==0;
+            float r0=major?0.76f:0.86f;
+            G.setColor(major?CYAN:CYAN_DIM);
+            G.draw(new Line2D.Float(dialCx+(float)Math.cos(a)*dialR*r0,dialCy+(float)Math.sin(a)*dialR*r0,
                                     dialCx+(float)Math.cos(a)*dialR*0.96f,dialCy+(float)Math.sin(a)*dialR*0.96f)); }
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; boolean left=(i==0||i==2);
-            G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.4f));
-            G.draw(new Line2D.Float(left?(float)b.getMaxX():(float)b.getMinX(),(float)b.getCenterY(),tdx[i],tdy[i]));
-            G.setColor(CYAN); G.fill(new Ellipse2D.Float(tdx[i]-3.2f,tdy[i]-3.2f,6.4f,6.4f));
+            float ax=left?(float)b.getMaxX():(float)b.getMinX(), ay=(float)b.getCenterY();
+            G.setColor(c(0x333FD2FF)); G.setStroke(new BasicStroke(3.5f));
+            G.draw(new Line2D.Float(ax,ay,tdx[i],tdy[i]));
+            G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.3f));
+            G.draw(new Line2D.Float(ax,ay,tdx[i],tdy[i]));
+            float mx=(ax+tdx[i])*0.5f, my=(ay+tdy[i])*0.5f;
+            G.setColor(c(0x443FD2FF)); G.fill(new Ellipse2D.Float(mx-2.6f,my-2.6f,5.2f,5.2f));
+            G.setColor(c(0x553FD2FF)); G.fill(new Ellipse2D.Float(tdx[i]-6.5f,tdy[i]-6.5f,13f,13f));
+            G.setColor(CYAN); G.fill(new Ellipse2D.Float(tdx[i]-3f,tdy[i]-3f,6f,6f));
             frame(b);
             G.setColor(GREY); font(H*0.038f,false);
             text(tyreLabel(i),(float)b.getMinX()+W*0.012f,(float)b.getMinY()+H*0.038f,0);

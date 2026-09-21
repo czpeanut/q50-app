@@ -7,6 +7,7 @@ import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.RadialGradient;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
@@ -622,7 +623,14 @@ public class DashView extends View {
 
     private void buildStatic() {
         try {
-            Bitmap bm = Bitmap.createBitmap((int) W, (int) H, Bitmap.Config.RGB_565);
+            // 8888 first: the backdrop is a long, dark gradient and 565 bands visibly across
+            // it. Twice the memory, but it is one bitmap and it buys the whole look.
+            Bitmap bm;
+            try {
+                bm = Bitmap.createBitmap((int) W, (int) H, Bitmap.Config.ARGB_8888);
+            } catch (Throwable oom) {
+                bm = Bitmap.createBitmap((int) W, (int) H, Bitmap.Config.RGB_565);
+            }
             drawStatic(new Canvas(bm));
             staticLayer = bm;
             // the artwork now lives inside the static layer; holding the source as well just
@@ -633,23 +641,24 @@ public class DashView extends View {
         }
     }
 
+    /**
+     * The whole backdrop, composited once. Everything here is free per frame, so it is worth
+     * spending on: a three-stop wash, a vignette, arcs and a pool of light behind the car,
+     * a starfield with a few glints, tick scales beside both columns, and corner brackets
+     * instead of plain rectangles. None of it costs anything once the bitmap exists.
+     */
     private void drawStatic(Canvas c) {
-        p.setShader(new LinearGradient(0, 0, 0, H, BG_TOP, BG_BOT, Shader.TileMode.CLAMP));
-        p.setStyle(Paint.Style.FILL);
-        c.drawRect(0, 0, W, H, p);
-        p.setShader(null);
-
-        Random rnd = new Random(20260921L);          // fixed seed: never shimmers on a rebuild
-        for (int i = 0; i < 150; i++) {
-            float x = rnd.nextFloat() * W, y = rnd.nextFloat() * H;
-            p.setColor(0xFF000000 | (0x1A2836 + rnd.nextInt(0x283848)));
-            c.drawCircle(x, y, 0.4f + rnd.nextFloat() * 1.0f, p);
-        }
-
+        backdrop(c);
+        arcs(c);
+        starfield(c);
+        pool(c);
         drawCar(c);
 
-        frame(c, rpmX, rpmY0, rpmX + barW, rpmY1);
-        frame(c, cooX, rpmY0, cooX + barW, rpmY1);
+        // both scales face inward: against the screen edge they were half off the panel
+        columnScale(c, rpmX + barW, false, 8);      // 0..7000 rpm, a tick per 1000
+        columnScale(c, cooX, true, 4);              // 40..120 C, a tick per 20
+        panel(c, rpmX, rpmY0, rpmX + barW, rpmY1);
+        panel(c, cooX, rpmY0, cooX + barW, rpmY1);
         pText.setColor(WHITE);
         pText.setTextSize(H * 0.071f);
         pText.setTextAlign(Paint.Align.LEFT);
@@ -657,20 +666,26 @@ public class DashView extends View {
         pText.setTextAlign(Paint.Align.RIGHT);
         c.drawText(cjk ? "水溫" : "COOLANT", cooX + barW, H * 0.0833f, pText);
 
-        frame(c, gearBox.left, gearBox.top, gearBox.right, gearBox.bottom);
+        panel(c, gearBox.left, gearBox.top, gearBox.right, gearBox.bottom);
         label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), H * 0.0458f);
-        frame(c, evBox.left, evBox.top, evBox.right, evBox.bottom);
+        panel(c, evBox.left, evBox.top, evBox.right, evBox.bottom);
         label(c, cjk ? "純電" : "ELECTRIC", evBox.centerX(), H * 0.0458f);
         label(c, cjk ? "轉向角" : "STEERING", W * 0.655f, H * 0.0458f);
 
         p.setStyle(Paint.Style.STROKE);
+        p.setColor(0x223FD2FF);
+        p.setStrokeWidth(5f);
+        c.drawCircle(dialCx, dialCy, dialR, p);      // soft ring under the hairline
         p.setColor(CYAN_DIM);
-        p.setStrokeWidth(1.6f);
+        p.setStrokeWidth(1.4f);
         c.drawCircle(dialCx, dialCy, dialR, p);
-        for (int i = 0; i < 12; i++) {
-            double a = Math.PI * 2 * i / 12.0;
-            c.drawLine(dialCx + (float) Math.cos(a) * dialR * 0.84f,
-                       dialCy + (float) Math.sin(a) * dialR * 0.84f,
+        for (int i = 0; i < 24; i++) {
+            double a = Math.PI * 2 * i / 24.0;
+            boolean major = (i % 6) == 0;
+            float r0 = major ? 0.76f : 0.86f;
+            p.setColor(major ? CYAN : CYAN_DIM);
+            c.drawLine(dialCx + (float) Math.cos(a) * dialR * r0,
+                       dialCy + (float) Math.sin(a) * dialR * r0,
                        dialCx + (float) Math.cos(a) * dialR * 0.96f,
                        dialCy + (float) Math.sin(a) * dialR * 0.96f, p);
         }
@@ -678,21 +693,30 @@ public class DashView extends View {
         for (int i = 0; i < 4; i++) {
             RectF b = tyreBox[i];
             boolean left = i == 0 || i == 2;
+            float ax = left ? b.right : b.left, ay = b.centerY();
             p.setStyle(Paint.Style.STROKE);
+            p.setColor(0x333FD2FF);
+            p.setStrokeWidth(3.5f);
+            c.drawLine(ax, ay, tyreDotX[i], tyreDotY[i], p);        // glow under the leader
             p.setColor(CYAN_DIM);
-            p.setStrokeWidth(1.4f);
-            c.drawLine(left ? b.right : b.left, b.centerY(), tyreDotX[i], tyreDotY[i], p);
+            p.setStrokeWidth(1.3f);
+            c.drawLine(ax, ay, tyreDotX[i], tyreDotY[i], p);
             p.setStyle(Paint.Style.FILL);
+            p.setColor(0x443FD2FF);                                  // node at the halfway point
+            float mx = (ax + tyreDotX[i]) * 0.5f, my = (ay + tyreDotY[i]) * 0.5f;
+            c.drawCircle(mx, my, 2.6f, p);
+            p.setColor(0x553FD2FF);
+            c.drawCircle(tyreDotX[i], tyreDotY[i], 6.5f, p);         // halo on the anchor
             p.setColor(CYAN);
-            c.drawCircle(tyreDotX[i], tyreDotY[i], 3.2f, p);
-            frame(c, b.left, b.top, b.right, b.bottom);
+            c.drawCircle(tyreDotX[i], tyreDotY[i], 3.0f, p);
+            panel(c, b.left, b.top, b.right, b.bottom);
             pText.setColor(GREY);
             pText.setTextSize(H * 0.038f);
             pText.setTextAlign(Paint.Align.LEFT);
             c.drawText(tyreLabel(i), b.left + W * 0.012f, b.top + H * 0.038f, pText);
         }
 
-        frame(c, pedalL, pedalY0, pedalR, pedalY1);
+        panel(c, pedalL, pedalY0, pedalR, pedalY1);
         p.setStyle(Paint.Style.STROKE);
         p.setColor(CYAN_DIM);
         p.setStrokeWidth(1.4f);
@@ -810,18 +834,119 @@ public class DashView extends View {
         }
     }
 
-    private void frame(Canvas c, float l, float t, float rr, float b) {
+    /** three-stop wash plus a vignette, so the panel has a centre and edges rather than a slab */
+    private void backdrop(Canvas c) {
+        p.setDither(true);
+        p.setStyle(Paint.Style.FILL);
+        p.setShader(new LinearGradient(0, 0, 0, H,
+                new int[] { 0xFF05080F, BG_TOP, 0xFF0E1826, BG_BOT },
+                new float[] { 0f, 0.28f, 0.72f, 1f }, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, W, H, p);
+        p.setShader(new RadialGradient(W * 0.5f, H * 0.46f, W * 0.72f,
+                new int[] { 0x00000000, 0x00000000, 0x5C000000 },
+                new float[] { 0f, 0.55f, 1f }, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, W, H, p);
+        p.setShader(null);
+        p.setDither(false);
+    }
+
+    /** faint concentric arcs centred on the car, so the middle of the screen has depth */
+    private void arcs(Canvas c) {
+        p.setStyle(Paint.Style.STROKE);
+        for (int i = 0; i < 6; i++) {
+            float rad = carW * (0.95f + i * 0.30f);
+            p.setColor(0x0E3FD2FF - (i * 0x01000000 > 0 ? 0 : 0));
+            p.setColor((CYAN & 0x00FFFFFF) | ((0x14 - i * 2) << 24));
+            p.setStrokeWidth(i == 2 ? 1.6f : 1.0f);
+            r.set(carCx - rad, carCy - rad, carCx + rad, carCy + rad);
+            c.drawArc(r, 200f, 140f, false, p);
+            c.drawArc(r, 20f, 140f, false, p);
+        }
+    }
+
+    /** fixed seed so the field never shimmers between rebuilds */
+    private void starfield(Canvas c) {
+        Random rnd = new Random(20260921L);
+        p.setStyle(Paint.Style.FILL);
+        for (int i = 0; i < 170; i++) {
+            float x = rnd.nextFloat() * W, y = rnd.nextFloat() * H;
+            p.setColor(0xFF000000 | (0x18242F + rnd.nextInt(0x2C3C4C)));
+            c.drawCircle(x, y, 0.4f + rnd.nextFloat() * 1.0f, p);
+        }
+        for (int i = 0; i < 9; i++) {                 // a few brighter ones, with a glint
+            float x = rnd.nextFloat() * W, y = rnd.nextFloat() * H;
+            p.setColor(0x443FD2FF);
+            c.drawCircle(x, y, 2.4f, p);
+            p.setColor(0xAA8FE4FF);
+            c.drawCircle(x, y, 0.9f, p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(0.8f);
+            p.setColor(0x333FD2FF);
+            c.drawLine(x - 4f, y, x + 4f, y, p);
+            c.drawLine(x, y - 4f, x, y + 4f, p);
+            p.setStyle(Paint.Style.FILL);
+        }
+    }
+
+    /** a pool of light so the car sits in something instead of floating on black */
+    private void pool(Canvas c) {
+        p.setStyle(Paint.Style.FILL);
+        p.setShader(new RadialGradient(carCx, carCy, carW * 1.25f,
+                new int[] { 0x2A3FD2FF, 0x0E3FD2FF, 0x00000000 },
+                new float[] { 0f, 0.45f, 1f }, Shader.TileMode.CLAMP));
+        c.drawRect(carCx - carW * 1.3f, carCy - carW * 1.3f,
+                   carCx + carW * 1.3f, carCy + carW * 1.3f, p);
+        p.setShader(null);
+    }
+
+    /** tick scale down the outer edge of a column: longer marks at the round numbers */
+    private void columnScale(Canvas c, float edgeX, boolean leftOfColumn, int divisions) {
+        float inner = barW * 0.18f;
+        float y0 = rpmY0 + inner, y1 = rpmY1 - inner;
+        p.setStyle(Paint.Style.STROKE);
+        for (int i = 0; i <= divisions * 2; i++) {
+            boolean major = (i % 2) == 0;
+            float y = y1 - (y1 - y0) * i / (divisions * 2f);
+            float len = major ? 7f : 3.5f;
+            p.setStrokeWidth(major ? 1.6f : 1.0f);
+            p.setColor(major ? 0x993FD2FF : 0x443FD2FF);
+            if (leftOfColumn) c.drawLine(edgeX - 3f - len, y, edgeX - 3f, y, p);
+            else c.drawLine(edgeX + 3f, y, edgeX + 3f + len, y, p);
+        }
+    }
+
+    /**
+     * Panel chrome: a translucent well, a hairline, and bright corner brackets. The brackets
+     * are what stop these reading as plain rectangles, and they cost nothing here.
+     */
+    private void panel(Canvas c, float l, float t, float rr, float b) {
         r.set(l, t, rr, b);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(PANEL);
+        p.setShader(new LinearGradient(0, t, 0, b, 0xD8101E2C, PANEL, Shader.TileMode.CLAMP));
         c.drawRect(r, p);
+        p.setShader(null);
+
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(3.2f);
+        p.setStrokeWidth(1.1f);
+        p.setColor(0x33FFFFFF & 0x334A7A94);
+        p.setColor(0x4A2F5E74);
+        c.drawRect(r, p);
+
+        float len = Math.min(rr - l, b - t) * 0.26f;
+        if (len > 16f) len = 16f;
+        p.setStrokeWidth(2.4f);
         p.setColor(0x553FD2FF);
-        c.drawRect(r, p);
-        p.setStrokeWidth(1.4f);
-        p.setColor(CYAN_DIM);
-        c.drawRect(r, p);
+        corners(c, l, t, rr, b, len);
+        p.setStrokeWidth(1.2f);
+        p.setColor(CYAN);
+        corners(c, l, t, rr, b, len);
+    }
+
+    private void corners(Canvas c, float l, float t, float rr, float b, float len) {
+        c.drawLine(l, t + len, l, t, p); c.drawLine(l, t, l + len, t, p);
+        c.drawLine(rr - len, t, rr, t, p); c.drawLine(rr, t, rr, t + len, p);
+        c.drawLine(l, b - len, l, b, p); c.drawLine(l, b, l + len, b, p);
+        c.drawLine(rr - len, b, rr, b, p); c.drawLine(rr, b, rr, b - len, p);
     }
 
     private void label(Canvas c, String s, float cx, float baseline) {
@@ -832,14 +957,23 @@ public class DashView extends View {
     }
 
     /** two-pass glow: wide and faint, then narrow and bright */
+    /**
+     * Stacked strokes standing in for a blur. Four passes rather than two: this runs once, in
+     * the static layer, so the extra passes are free and the falloff is much smoother.
+     */
     private void glowPath(Canvas c, Path pathIn, int color, float width) {
         p.setStyle(Paint.Style.STROKE);
-        p.setColor((color & 0x00FFFFFF) | 0x40000000);
-        p.setStrokeWidth(width);
-        c.drawPath(pathIn, p);
-        p.setColor(color);
-        p.setStrokeWidth(width * 0.28f);
-        c.drawPath(pathIn, p);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        int[] alpha = { 0x14, 0x24, 0x48, 0xFF };
+        float[] mul = { 1.9f, 1.15f, 0.62f, 0.26f };
+        for (int i = 0; i < 4; i++) {
+            p.setColor((color & 0x00FFFFFF) | (alpha[i] << 24));
+            p.setStrokeWidth(width * mul[i]);
+            c.drawPath(pathIn, p);
+        }
+        p.setStrokeCap(Paint.Cap.BUTT);
+        p.setStrokeJoin(Paint.Join.MITER);
     }
 
     private int dashes() { buf[0] = '-'; buf[1] = '-'; return 2; }
