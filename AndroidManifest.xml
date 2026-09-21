@@ -32,8 +32,8 @@
              ivi.isDistractive="false" so the non-distractive flag travels with it whichever
              level the InTouch PackageParser reads it from. -->
 
-        <!-- Live watcher with min/max latch + storage probe + CSV recorder. Launcher. -->
-        <activity android:name=".SensorWatchActivity" android:label="AppGarage Dash"
+        <!-- Driving screen. Launcher. Long-press opens the watcher. -->
+        <activity android:name=".DashActivity" android:label="AppGarage Dash"
                   android:icon="@drawable/ic_launcher"
                   android:screenOrientation="landscape"
                   android:keepScreenOn="true">
@@ -42,6 +42,14 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <!-- Live watcher with min/max latch + storage probe + CSV recorder. -->
+        <activity android:name=".SensorWatchActivity" android:label="AppGarage Dash"
+                  android:icon="@drawable/ic_launcher"
+                  android:screenOrientation="landscape"
+                  android:keepScreenOn="true">
+            <meta-data android:name="ivi.isDistractive" android:value="false" />
         </activity>
 
         <!-- Sensor inventory dump. Reachable from the watcher's LIST button. -->

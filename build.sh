@@ -22,7 +22,9 @@ VC=$(date +%s)
 
 rm -rf build && mkdir -p build/classes build/dex
 echo "== [1/6] javac (release 8) =="
-"$JAVAC" --release 8 -g -d build/classes -classpath "$ANDJAR" src/com/appgarage/dash/*.java
+# -encoding UTF-8 is not optional: the sources carry CJK labels, and without it javac
+# silently decodes them with the platform default and the head unit shows mojibake.
+"$JAVAC" --release 8 -encoding UTF-8 -g -d build/classes -classpath "$ANDJAR" src/com/appgarage/dash/*.java
 echo "  compiled: $(find build/classes -name '*.class' | wc -l) classes"
 
 echo "== [2/6] d8 -> classes.dex (min-api 10) =="
