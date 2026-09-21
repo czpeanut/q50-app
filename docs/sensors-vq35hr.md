@@ -24,11 +24,22 @@ that needs live values, which is what `SensorWatchActivity` exists to find out.
 |---|---|
 | 17 `VEHICLE_SPEED` | **raw value is km/h directly.** The original notes were right; the `max=655340` reading was not a clue to anything. |
 | 25 `STEERING_ANGLE` | **raw value is degrees directly**, **signed: right positive, left negative**, roughly **±390 at full lock**, carrying one decimal. Note this is *not* the 0.1-degree unit the `resolution` field implies — 390 raw is 390°, matching the quick DAS rack. Fully calibrated; ready to use as-is. |
-| 26 `REGENERATION` | **delivered no events at all.** Declared in the inventory, never fed. |
+| 26 `REGENERATION` | **live.** Delivers events continuously (n rose with every other signal); it simply reads a flat 0.000 while stationary with the engine off. An earlier note recording it as dead was a misreading — a constant zero is not an absent signal. Its behaviour under load is still unknown and is the one open hybrid question. |
+| 28 `ECO_MODE` | **dead.** Declared in the inventory and never delivers an event, while every neighbouring signal counts up. |
+| 24 `BRAKE_PEDAL_POSITION` | live; 10 to 68 observed over one brake application against a declared max of 90. |
+| 20 / 21 G axes | raw value is **g directly** — −0.010 to −0.020 on type 21 at rest on a slight slope. `max=2000` is another placeholder. |
 
-With 26 dead and no battery signal in the list, **nothing in the Sensor API carries hybrid
-state**. The remaining route is inference: type 13 reading 0 rpm while type 17 shows road speed
-means the car is under electric drive, and both of those signals are confirmed.
+The distinction that matters: `n=` counts events. A signal showing `0.000  n=144` is being fed
+and happens to be zero; a signal showing `no data yet` is never fed at all. Only the second is
+dead.
+
+## Platform: Android is a guest, not the system
+
+`/proc/mounts` shows two systems at once. The host is a systemd Linux — `aufs` on `/var`,
+cgroups, and the navigation application under `/home/naviwork`. Android 2.3 runs inside it,
+with its own root on a read-only `tmpfs` and its partitions mounted from `/dev/mmcblk0p5`
+(`/system`) and `/dev/mmcblk0p9` (`/data`). App Garage apps are guests of a guest, which is why
+so little of the filesystem is reachable.
 
 ## Storage: writing works, retrieval is the problem
 
@@ -41,9 +52,30 @@ and cannot disappear mid-drive the way a USB stick pulled from the socket can �
 EXPORT step copies the files out to whatever reachable location exists at that moment. The
 probe re-runs on demand, so a stick plugged in after boot (or after the drive) is picked up.
 
-If no external mount ever appears, the time series cannot leave the unit at all, and the
-on-screen min/max latch is the only record. Note that a USB stick must actually be **plugged in**
-when the probe runs: with no stick present there is no mount point to find.
+### What the probe actually found, with a stick plugged in
+
+| Path | fs | Verdict |
+|---|---|---|
+| `/data/data/com.appgarage.dash/files` | ext4 | writable, **persistent**, unreachable from outside the app |
+| `/mnt/sdcard` and below | **tmpfs** | writable, **RAM disk** — dies at power-off, a PC can never read it |
+| `/data/system/tmp` | **tmpfs** | same |
+| `/data/system/tmp/sdb1` | **vfat** | **this is the USB stick.** Mounted `rw`, but with `fmask=0022,dmask=0022` and owned by root, so this app may read it and cannot write to it |
+| `/cache`, `/data`, `/data/local/tmp`, `/mnt/asec`, `/mnt/obb` | — | permission denied |
+
+`externalStorageState` reports `removed`: there is no real external volume: `/mnt/sdcard` is
+only a tmpfs placeholder wearing the name.
+
+**So there is exactly one persistent writable location — the app's own private directory — and
+it cannot be read by anything else on an unrooted unit.** Ranking candidate directories by the
+words in their path was wrong for this reason: `/mnt/sdcard` scored highest on the strength of
+the word "sdcard" while being RAM. Volatility is now read from the filesystem type.
+
+### The consequence
+
+**The screen is the only output channel this unit has.** The USB stick is readable but not
+writable, so it can carry data *in* but not *out*. Recordings are worth keeping in the private
+directory for on-device analysis, but any conclusion that has to leave the car has to leave it
+through the display and a camera — which is what the min/max latch is for.
 
 ## `maximumRange` is only sometimes real
 
@@ -69,15 +101,15 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 | 17 | `VS_ID_VEHICLE_SPEED` | 655340.0 | 1.0 | **confirmed km/h directly** — the max field meant nothing |
 | 18 | `VS_ID_DISTANCE_TO_EMPTY` | 6553400.0 | 1.0 | not in the original notes |
 | 19 | `VS_ID_FUEL_CONSUMPTION_FINE` | 2048000.0 | 0.001 | fine-grained instantaneous |
-| 20 | `VS_ID_TRANSVERSAL_ACCELERATION` | 2000.0 | 1.0 | **scaling suspect** — 1 g full-scale was a guess |
-| 21 | `VS_ID_LONGITUDINAL_ACCELERATION` | 2000.0 | 1.0 | as above |
+| 20 | `VS_ID_TRANSVERSAL_ACCELERATION` | 2000.0 | 1.0 | **raw is g directly**; max is a placeholder |
+| 21 | `VS_ID_LONGITUDINAL_ACCELERATION` | 2000.0 | 1.0 | **raw is g directly** (−0.01 at rest on a slope) |
 | 22 | `VS_ID_GEAR_POSITION` | −0.0 | −0.0 | enum, confirmed on-car |
 | 23 | `VS_ID_ACCELERATOR_PEDAL_POSITION` | 1000.0 | 0.001 | **pedal, not throttle** — distinct on a hybrid |
-| 24 | `VS_ID_BRAKE_PEDAL_POSITION` | 90.0 | 1.0 | not in the original notes; the control input for regen testing |
+| 24 | `VS_ID_BRAKE_PEDAL_POSITION` | 90.0 | 1.0 | **live**, 10–68 observed against a declared max of 90 |
 | 25 | `VS_ID_STEERING_ANGLE` | 9000.0 | 0.1 | **confirmed: degrees, right +, left −, ±390 full lock, 1 decimal** |
-| 26 | `VS_ID_REGENERATION` | 63500.0 | 1.0 | **dead — declared but never delivers an event** |
+| 26 | `VS_ID_REGENERATION` | 63500.0 | 1.0 | **live; flat 0.000 at rest with the engine off. Behaviour under load still unknown** |
 | 27 | `VS_ID_ILLUMI` | −0.0 | −0.0 | enum, day/night illumination |
-| 28 | `VS_ID_ECO_MODE` | −0.0 | −0.0 | enum; drive-mode candidate |
+| 28 | `VS_ID_ECO_MODE` | −0.0 | −0.0 | **dead — never delivers an event** |
 | 29 | `VS_ID_FUEL_CONSUMPTION_HISTORY` | 200000.0 | 1.0 | |
 | 30 | `VS_ID_AVERAGE_OF_FUEL_CONSUMPTION` | 99000.0 | 1.0 | |
 | 31 | `VS_ID_MOMENT_FUEL_CONSUMPTION` | 200000.0 | 1.0 | should fall to zero under EV drive → engine on/off proxy |

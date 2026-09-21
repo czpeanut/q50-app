@@ -102,6 +102,8 @@ public class SensorWatchActivity extends Activity
     private boolean showDiag;
     private String diagText = "";
     private final List<String> probeLog = new ArrayList<String>();
+    private final List<String> mountPoints = new ArrayList<String>();
+    private final List<String> mountTypes = new ArrayList<String>();
     private final List<File> writable = new ArrayList<File>();
     private BufferedWriter writer;
     private File logFile;
@@ -381,21 +383,31 @@ public class SensorWatchActivity extends Activity
         }
     }
 
-    /** mount points from /proc/mounts, minus the pseudo-filesystems that can never hold a file */
+    /**
+     * Mount points from /proc/mounts, minus the pseudo-filesystems that can never hold a file.
+     * The filesystem type of each is kept, because "writable" turned out not to mean "useful":
+     * /mnt/sdcard on this unit is a tmpfs placeholder, so a file copied there lives in RAM,
+     * dies at power-off and can never be read on a computer. Reporting that copy as a
+     * successful export was simply wrong.
+     */
     private List<String> readMounts() {
         List<String> out = new ArrayList<String>();
+        mountPoints.clear();
+        mountTypes.clear();
         BufferedReader r = null;
         try {
             r = new BufferedReader(new FileReader("/proc/mounts"));
             String line;
-            while ((line = r.readLine()) != null && out.size() < 64) {
+            while ((line = r.readLine()) != null && mountPoints.size() < 128) {
                 String[] f = line.split(" ");
                 if (f.length < 3) continue;
                 String point = f[1], type = f[2];
+                mountPoints.add(point);
+                mountTypes.add(type);
                 if (type.equals("proc") || type.equals("sysfs") || type.equals("devpts")
                         || type.equals("cgroup") || type.equals("debugfs")
                         || type.equals("usbfs") || type.equals("rootfs")) continue;
-                out.add(point);
+                if (out.size() < 64) out.add(point);
             }
         } catch (Throwable t) {
             probeLog.add("/proc/mounts unreadable: " + t);
@@ -403,6 +415,24 @@ public class SensorWatchActivity extends Activity
             try { if (r != null) r.close(); } catch (Throwable ignored) {}
         }
         return out;
+    }
+
+    /** filesystem type of the longest mount point that is a prefix of this path */
+    private String fsTypeOf(String path) {
+        String best = "", type = "?";
+        for (int i = 0; i < mountPoints.size(); i++) {
+            String m = mountPoints.get(i);
+            boolean covers = path.equals(m)
+                    || (m.equals("/") ? true : path.startsWith(m.endsWith("/") ? m : m + "/"));
+            if (covers && m.length() >= best.length()) { best = m; type = mountTypes.get(i); }
+        }
+        return type;
+    }
+
+    /** RAM-backed: writable, but the contents cannot survive power-off or leave the unit */
+    private boolean isVolatile(String path) {
+        String t = fsTypeOf(path);
+        return t.equals("tmpfs") || t.equals("ramfs");
     }
 
     private void probe(File dir, String how) {
@@ -423,7 +453,12 @@ public class SensorWatchActivity extends Activity
             w.close();
             boolean ok = p.exists() && p.length() > 0;
             p.delete();
-            if (ok) { writable.add(dir); probeLog.add("OK  " + path + "  [" + how + "]"); }
+            if (ok) {
+                writable.add(dir);
+                String fs = fsTypeOf(path);
+                probeLog.add("OK  " + path + "  [" + how + ", " + fs + "]"
+                        + (isVolatile(path) ? "  <-- RAM DISK, lost at power-off" : ""));
+            }
             else probeLog.add("NO  " + path + "  (wrote nothing)");
         } catch (Throwable t) {
             probeLog.add("NO  " + path + "  " + t);
@@ -442,6 +477,24 @@ public class SensorWatchActivity extends Activity
         d.append("EXPORT would copy to: ")
          .append(ex == null ? "NOWHERE REACHABLE -- plug the USB stick in and press STORAGE? again"
                             : ex.getAbsolutePath()).append('\n');
+        d.append("\nremovable media seen in the mount table:\n");
+        int found = 0;
+        for (int i = 0; i < mountPoints.size(); i++) {
+            String t = mountTypes.get(i);
+            if (!t.equals("vfat") && !t.equals("exfat") && !t.equals("ntfs")
+                    && !t.equals("msdos")) continue;
+            found++;
+            String m = mountPoints.get(i);
+            boolean canWrite = false;
+            for (int j = 0; j < writable.size(); j++) {
+                if (writable.get(j).getAbsolutePath().equals(m)) { canWrite = true; break; }
+            }
+            d.append("  ").append(m).append("  ").append(t)
+             .append(canWrite ? "  WRITABLE" : "  present but NOT writable by this app")
+             .append('\n');
+        }
+        if (found == 0) d.append("  none -- is the USB stick plugged in?\n");
+
         File[] logs = logFiles();
         d.append("\nrecordings held internally: ").append(logs.length).append('\n');
         for (int i = 0; i < logs.length; i++) {
@@ -525,8 +578,13 @@ public class SensorWatchActivity extends Activity
             try { bytes += copyFile(logs[i], new File(dst, logs[i].getName())); ok++; }
             catch (Throwable t) { err = " last error: " + t; }
         }
+        String path = dst.getAbsolutePath();
+        String warn = isVolatile(path)
+            ? "  !! " + fsTypeOf(path) + " = RAM DISK: this copy dies at power-off and cannot be"
+              + " read on a computer. Not a real export."
+            : "";
         note = "EXPORT: " + ok + "/" + logs.length + " file(s), " + (bytes / 1024)
-             + " KB -> " + dst.getAbsolutePath() + err;
+             + " KB -> " + path + warn + err;
     }
 
     private long copyFile(File src, File dst) throws Exception {
@@ -547,13 +605,18 @@ public class SensorWatchActivity extends Activity
         return total;
     }
 
-    private static int scoreDir(String path) {
+    /**
+     * Rank by usefulness, not by how the path is spelled. The first version scored on the name
+     * alone, so /mnt/sdcard won on the strength of the word "sdcard" while actually being a
+     * RAM disk. Anything RAM-backed now ranks below the app's own persistent directory.
+     */
+    private int scoreDir(String path) {
+        if (isVolatile(path)) return 1;                    // writable, but goes nowhere
         String p = path.toLowerCase(Locale.US);
-        if (p.indexOf("usb") >= 0 || p.indexOf("sda") >= 0 || p.indexOf("udisk") >= 0) return 4;
-        if (p.indexOf("sdcard") >= 0 || p.indexOf("storage") >= 0 || p.indexOf("media") >= 0) return 3;
-        if (p.indexOf("/data/data/") >= 0) return 2;        // the app's own directory
-        if (p.indexOf("tmp") >= 0 || p.indexOf("cache") >= 0) return 1;  // survives, but not a reboot
-        return 0;
+        if (p.indexOf("usb") >= 0 || p.indexOf("sda") >= 0 || p.indexOf("udisk") >= 0) return 5;
+        if (p.indexOf("sdcard") >= 0 || p.indexOf("storage") >= 0 || p.indexOf("media") >= 0) return 4;
+        if (p.indexOf("/data/data/") >= 0) return 3;       // persistent, but private to this app
+        return 2;
     }
 
     private void startRecording() {
