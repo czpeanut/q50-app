@@ -96,6 +96,7 @@ public class SensorWatchActivity extends Activity
     private final StringBuilder sb = new StringBuilder(8192);
 
     private TextView bigTv, allTv, statusTv;
+    private ScrollView scroll;
     private Button resetBtn, recBtn, exportBtn, diagBtn, listBtn;
 
     private boolean showDiag;
@@ -114,6 +115,12 @@ public class SensorWatchActivity extends Activity
         super.onCreate(b);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
+        // Layout rule learned the hard way: only the button bar is fixed. Everything else goes
+        // inside ONE scroll view. The first version pinned the status line and the watch panel
+        // too, and between them they ate the whole 480 px -- the signal list underneath was
+        // left with a viewport a few pixels tall, so it looked like the screen would not
+        // scroll at all. The sensor list screen scrolls fine precisely because it is one
+        // scroll view from top to bottom.
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.BLACK);
@@ -125,18 +132,24 @@ public class SensorWatchActivity extends Activity
         exportBtn = addButton(bar, "EXPORT");
         diagBtn = addButton(bar, "STORAGE?");
         listBtn = addButton(bar, "LIST");
-        root.addView(bar, wrap());
+        root.addView(bar, wrap());                  // pinned: must stay reachable
+
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
 
         statusTv = newText(10, 0xFFFFB020);         // amber: unverified / diagnostic
-        root.addView(statusTv, wrap());
+        page.addView(statusTv, wrap());
 
-        bigTv = newText(17, 0xFF39C0FF);
-        root.addView(bigTv, wrap());
+        bigTv = newText(14, 0xFF39C0FF);            // 14 keeps the widest row inside 800 px
+        page.addView(bigTv, wrap());
 
         allTv = newText(11, 0xFFE6EDF3);
-        ScrollView sv = new ScrollView(this);
-        sv.addView(allTv);
-        root.addView(sv, new LinearLayout.LayoutParams(
+        page.addView(allTv, wrap());
+
+        scroll = new ScrollView(this);
+        scroll.setScrollbarFadingEnabled(false);    // a visible bar says "there is more below"
+        scroll.addView(page);
+        root.addView(scroll, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.FILL_PARENT, 0, 1f));
 
         setContentView(root);
@@ -608,6 +621,25 @@ public class SensorWatchActivity extends Activity
             try { startActivity(new Intent(this, SensorListActivity.class)); }
             catch (Throwable t) { note = "cannot open list: " + t; }
         }
+    }
+
+    /**
+     * Scroll with the hardware up/down keys as well as by touch. Left/right still moves focus
+     * along the button row, so every control stays reachable without the touchscreen.
+     */
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent e) {
+        if (scroll != null) {
+            if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
+                scroll.smoothScrollBy(0, 120);
+                return true;
+            }
+            if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
+                scroll.smoothScrollBy(0, -120);
+                return true;
+            }
+        }
+        return super.onKeyDown(keyCode, e);
     }
 
     // ---------------------------------------------------------------- view helpers
