@@ -2,6 +2,7 @@ package com.appgarage.dash;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
@@ -11,6 +12,7 @@ import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.view.View;
 
+import java.io.InputStream;
 import java.util.Random;
 
 /**
@@ -103,6 +105,8 @@ public class DashView extends View {
     private final Path path = new Path();
     private final char[] buf = new char[20];
     private Bitmap staticLayer;
+    private Bitmap carArt;
+    private boolean carArtTried;
     private boolean cjk = true;
 
     // ---- geometry ----
@@ -161,14 +165,17 @@ public class DashView extends View {
         gearBox.set(W * 0.1875f, H * 0.0583f, W * 0.2875f, H * 0.1833f);
         evBox.set(W * 0.305f, H * 0.0583f, W * 0.405f, H * 0.1833f);
 
+        // The steering readout sits beside its own dial rather than above the car, which
+        // keeps the whole centre column free for the heading arrow to rise into. The two
+        // belong together anyway.
         dialR = H * 0.0833f;
-        dialCx = W * 0.75f;
+        dialCx = W * 0.80f;
         dialCy = H * 0.1083f;
 
         carW = W * 0.2375f;
-        carH = H * 0.46f;
+        carH = H * 0.43f;
         carCx = W * 0.5f;
-        carCy = H * 0.53f;
+        carCy = H * 0.555f;
 
         float bw = W * 0.1875f, bh = H * 0.125f;
         float leftX = W * 0.11f, rightX = W * 0.7025f;
@@ -217,7 +224,66 @@ public class DashView extends View {
         drawTyres(c, pulse);
         drawFriction(c);
         drawPedals(c);
+        drawHeading(c);
         drawSpeed(c);
+    }
+
+    /**
+     * Where the car is about to go: an arrow above the roof that bends with the steering angle
+     * and lengthens with road speed. Straight and short at a standstill, leaning hard into the
+     * turn under lock.
+     *
+     * The bend is deliberately not one-to-one with the wheel. Full lock is 390 degrees and an
+     * arrow rotated that far would be pointing backwards; it maps to a readable lean instead,
+     * so the shape tracks the wheel without becoming nonsense.
+     */
+    private void drawHeading(Canvas c) {
+        if (!h(STEER) && !h(SPEED)) return;
+        float t = h(STEER) ? d[STEER] / STEER_FULL : 0f;
+        if (t < -1f) t = -1f; else if (t > 1f) t = 1f;
+        float spd = h(SPEED) ? d[SPEED] / 120f : 0f;
+        if (spd < 0f) spd = 0f; else if (spd > 1f) spd = 1f;
+
+        float baseX = carCx, baseY = carCy - carH * 0.56f;
+        float len = carH * (0.17f + 0.14f * spd);      // short at a standstill, long at speed
+        float tipX = baseX + t * carW * 0.60f;
+        float tipY = baseY - len;
+        float ctrlX = baseX + t * carW * 0.16f;
+        float ctrlY = baseY - len * 0.55f;
+
+        int alpha = (int) (0x66 + 0x99 * spd);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        path.rewind();
+        path.moveTo(baseX, baseY);
+        path.quadTo(ctrlX, ctrlY, tipX, tipY);
+        p.setColor((CYAN & 0x00FFFFFF) | ((alpha / 3) << 24));   // glow pass
+        p.setStrokeWidth(carW * 0.100f);
+        c.drawPath(path, p);
+        p.setColor((CYAN & 0x00FFFFFF) | (alpha << 24));
+        p.setStrokeWidth(carW * 0.038f);
+        c.drawPath(path, p);
+        p.setStrokeCap(Paint.Cap.BUTT);
+
+        // head, squared to the curve's end tangent so it never looks bolted on
+        float dx = tipX - ctrlX, dy = tipY - ctrlY;
+        float m = (float) Math.sqrt(dx * dx + dy * dy);
+        if (m < 0.001f) return;
+        dx /= m; dy /= m;
+        float px = -dy, py = dx;
+        float hl = carH * 0.090f, hw = carW * 0.100f;
+        path.rewind();
+        path.moveTo(tipX + dx * hl, tipY + dy * hl);
+        path.lineTo(tipX + px * hw, tipY + py * hw);
+        path.lineTo(tipX - px * hw, tipY - py * hw);
+        path.close();
+        p.setStyle(Paint.Style.FILL);
+        p.setColor((CYAN & 0x00FFFFFF) | ((alpha / 3) << 24));
+        c.drawPath(path, p);
+        p.setColor((CYAN & 0x00FFFFFF) | (alpha << 24));
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2.2f);
+        c.drawPath(path, p);
     }
 
     /** ease every displayed value toward its target and advance the animation state */
@@ -288,9 +354,9 @@ public class DashView extends View {
         }
         p.setStyle(Paint.Style.FILL);
         p.setColor(col);
-        c.drawRect(0, 0, W, H * 0.014f, p);
-        p.setColor((col & 0x00FFFFFF) | 0x33000000);
-        c.drawRect(0, H * 0.014f, W, H * 0.030f, p);
+        c.drawRect(0, 0, W, H * 0.009f, p);                  // thin enough to clear the
+        p.setColor((col & 0x00FFFFFF) | 0x33000000);         // header labels beneath it
+        c.drawRect(0, H * 0.009f, W, H * 0.017f, p);
     }
 
     private void drawTach(Canvas c, long now) {
@@ -425,7 +491,7 @@ public class DashView extends View {
         pText.setTextSize(H * 0.0958f);
         pText.setTextAlign(Paint.Align.CENTER);
         int n = h(STEER) ? fmt(deg, 0) : dashes();
-        c.drawText(buf, 0, n, W * 0.505f, H * 0.1625f, pText);
+        c.drawText(buf, 0, n, W * 0.655f, H * 0.1625f, pText);
 
         c.save();
         c.rotate(h(STEER) ? deg : 0f, dialCx, dialCy);
@@ -542,41 +608,6 @@ public class DashView extends View {
             c.drawRect(mid + half * thr - 4f, pedalY0 + 3f, mid + half * thr, pedalY1 - 3f, p);
         }
 
-        // the drawing's arrow, given a job: which pedal is winning and how hard
-        float net = thr - brk;
-        if (net > 0.02f || net < -0.02f) {
-            boolean up = net > 0;
-            float mag = up ? net : -net;
-            float ay = carCy - carH * 0.60f;
-            float aw = carW * 0.15f * (0.55f + mag * 0.45f);
-            float ah = carH * 0.13f * (0.55f + mag * 0.45f);
-            path.rewind();
-            if (up) {
-                path.moveTo(carCx, ay - ah);
-                path.lineTo(carCx + aw, ay);
-                path.lineTo(carCx + aw * 0.42f, ay);
-                path.lineTo(carCx + aw * 0.42f, ay + ah * 0.55f);
-                path.lineTo(carCx - aw * 0.42f, ay + ah * 0.55f);
-                path.lineTo(carCx - aw * 0.42f, ay);
-                path.lineTo(carCx - aw, ay);
-            } else {
-                path.moveTo(carCx, ay + ah * 0.55f);
-                path.lineTo(carCx + aw, ay - ah * 0.30f);
-                path.lineTo(carCx + aw * 0.42f, ay - ah * 0.30f);
-                path.lineTo(carCx + aw * 0.42f, ay - ah);
-                path.lineTo(carCx - aw * 0.42f, ay - ah);
-                path.lineTo(carCx - aw * 0.42f, ay - ah * 0.30f);
-                path.lineTo(carCx - aw, ay - ah * 0.30f);
-            }
-            path.close();
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(up ? 0x553FD2FF : 0x55FF4545);
-            c.drawPath(path, p);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(2f);
-            p.setColor(up ? CYAN : RED);
-            c.drawPath(path, p);
-        }
     }
 
     private void drawSpeed(Canvas c) {
@@ -594,6 +625,9 @@ public class DashView extends View {
             Bitmap bm = Bitmap.createBitmap((int) W, (int) H, Bitmap.Config.RGB_565);
             drawStatic(new Canvas(bm));
             staticLayer = bm;
+            // the artwork now lives inside the static layer; holding the source as well just
+            // occupies heap that Dalvik would rather have back
+            if (carArt != null) { carArt.recycle(); carArt = null; carArtTried = false; }
         } catch (Throwable t) {
             staticLayer = null;                     // no memory: fall back to live drawing
         }
@@ -627,7 +661,7 @@ public class DashView extends View {
         label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), H * 0.0458f);
         frame(c, evBox.left, evBox.top, evBox.right, evBox.bottom);
         label(c, cjk ? "純電" : "ELECTRIC", evBox.centerX(), H * 0.0458f);
-        label(c, cjk ? "轉向角" : "STEERING", W * 0.505f, H * 0.0458f);
+        label(c, cjk ? "轉向角" : "STEERING", W * 0.655f, H * 0.0458f);
 
         p.setStyle(Paint.Style.STROKE);
         p.setColor(CYAN_DIM);
@@ -674,11 +708,63 @@ public class DashView extends View {
     }
 
     /**
-     * Rear outline. Deliberately plain and self-contained -- this is the one piece meant to be
-     * redrawn by hand, and nothing else depends on its shape. Coordinates are fractions of
-     * carW/carH about carCx/carCy, so it rescales with the rest of the layout.
+     * The car in the middle of the screen. If assets/car.png exists it is used; the vector
+     * outline below is only the fallback.
+     *
+     * Using a bitmap here is cheaper than the vector version, not more expensive: the car is
+     * part of the static layer and is therefore drawn exactly once, so this is a single scaled
+     * blit against a Path that would otherwise be stroked twice for its glow. The source is
+     * decoded once, downsampled if it is larger than it needs to be, and released as soon as
+     * it has been composited.
      */
     private void drawCar(Canvas c) {
+        Bitmap art = carArt();
+        if (art != null) {
+            float sw = art.getWidth(), sh = art.getHeight();
+            float scale = Math.min(carW / sw, carH / sh);       // fit, preserving aspect
+            float w = sw * scale, hgt = sh * scale;
+            r.set(carCx - w * 0.5f, carCy - hgt * 0.5f, carCx + w * 0.5f, carCy + hgt * 0.5f);
+            p.setStyle(Paint.Style.FILL);
+            p.setFilterBitmap(true);
+            c.drawBitmap(art, null, r, p);
+            p.setFilterBitmap(false);
+            return;
+        }
+        drawCarFallback(c);
+    }
+
+    /** decode assets/car.png once, downsampled to roughly the size it will be drawn at */
+    private Bitmap carArt() {
+        if (carArtTried) return carArt;
+        carArtTried = true;
+        InputStream in = null;
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            in = getContext().getAssets().open("car.png");
+            BitmapFactory.decodeStream(in, null, bounds);
+            in.close();
+            in = null;
+
+            int sample = 1;
+            int want = (int) Math.max(carW, carH) * 2;           // headroom for the scale-down
+            if (want > 0) while (bounds.outWidth / (sample * 2) >= want) sample *= 2;
+
+            BitmapFactory.Options o = new BitmapFactory.Options();
+            o.inSampleSize = sample;
+            o.inPreferredConfig = Bitmap.Config.ARGB_8888;       // the drawing needs its alpha
+            in = getContext().getAssets().open("car.png");
+            carArt = BitmapFactory.decodeStream(in, null, o);
+        } catch (Throwable t) {
+            carArt = null;                                       // absent or unreadable: fall back
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignored) {}
+        }
+        return carArt;
+    }
+
+    /** placeholder used until assets/car.png is supplied */
+    private void drawCarFallback(Canvas c) {
         float hw = carW * 0.5f, hh = carH * 0.5f, x = carCx, y = carCy;
         path.rewind();
         path.moveTo(x - hw, y + hh * 0.50f);

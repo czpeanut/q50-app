@@ -7,6 +7,9 @@
 #
 # Keep it in step with DashView by hand -- it mirrors the layout maths, not the code.
 #
+# It picks up assets/car.png the same way the app does, so this is also how to check your own
+# car drawing before taking it to the vehicle.
+#
 #   bash tools/preview.sh            # normal running state
 #   bash tools/preview.sh warn       # redline, hot coolant, soft tyre, hard braking
 #   bash tools/preview.sh ev         # electric drive, engine off, still warming up

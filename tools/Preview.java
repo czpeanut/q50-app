@@ -2,6 +2,7 @@ import java.awt.*;
 import java.awt.geom.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.awt.image.BufferedImage;
 import java.util.Random;
 import javax.imageio.ImageIO;
 
@@ -46,8 +47,8 @@ public class Preview {
         barW=W*0.0625f; rpmX=W*0.0225f; cooX=W-rpmX-barW; rpmY0=H*0.225f; rpmY1=H*0.929f;
         gearBox=new Rectangle2D.Float(W*0.1875f,H*0.0583f,W*0.10f,H*0.125f);
         evBox  =new Rectangle2D.Float(W*0.305f, H*0.0583f,W*0.10f,H*0.125f);
-        dialR=H*0.0833f; dialCx=W*0.75f; dialCy=H*0.1083f;
-        carW=W*0.2375f; carH=H*0.46f; carCx=W*0.5f; carCy=H*0.53f;
+        dialR=H*0.0833f; dialCx=W*0.80f; dialCy=H*0.1083f;
+        carW=W*0.2375f; carH=H*0.43f; carCx=W*0.5f; carCy=H*0.555f;
         float bw=W*0.1875f,bh=H*0.125f,leftX=W*0.11f,rightX=W*0.7025f,topY=H*0.335f,botY=H*0.585f;
         tyreBox[0]=new Rectangle2D.Float(leftX,topY,bw,bh);
         tyreBox[1]=new Rectangle2D.Float(rightX,topY,bw,bh);
@@ -93,7 +94,24 @@ public class Preview {
     static float tachFrac(){ float f=h(RPM)?g(RPM)/REDLINE:0f; return Math.max(0,Math.min(1,f)); }
     static float clamp1(float x){ return x<-1f?-1f:x>1f?1f:x; }
 
+    static BufferedImage carArt(){
+        String[] tries={"car.png","../../assets/car.png","assets/car.png"};
+        for(String t:tries){ File f=new File(t);
+            if(f.isFile()){ try{ return ImageIO.read(f); }catch(Exception e){} } }
+        return null;
+    }
     static void drawCar(){
+        BufferedImage art=carArt();
+        if(art!=null){
+            float sw=art.getWidth(), sh=art.getHeight();
+            float scale=Math.min(carW/sw,carH/sh);
+            float w=sw*scale, hgt=sh*scale;
+            G.drawImage(art,Math.round(carCx-w/2),Math.round(carCy-hgt/2),Math.round(w),Math.round(hgt),null);
+            return;
+        }
+        drawCarFallback();
+    }
+    static void drawCarFallback(){
         float hw=carW*0.5f,hh=carH*0.5f,x=carCx,y=carCy;
         GeneralPath p=new GeneralPath();
         p.moveTo(x-hw,y+hh*0.50f); p.lineTo(x-hw,y-hh*0.16f);
@@ -129,7 +147,7 @@ public class Preview {
         text(cjk?"水溫":"COOLANT",cooX+barW,H*0.0833f,2);
         frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),H*0.0458f);
         frame(evBox);   label(cjk?"純電":"ELECTRIC",(float)evBox.getCenterX(),H*0.0458f);
-        label(cjk?"轉向角":"STEERING",W*0.505f,H*0.0458f);
+        label(cjk?"轉向角":"STEERING",W*0.655f,H*0.0458f);
         G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.6f));
         G.draw(new Ellipse2D.Float(dialCx-dialR,dialCy-dialR,dialR*2,dialR*2));
         for(int i=0;i<12;i++){ double a=Math.PI*2*i/12.0;
@@ -158,7 +176,7 @@ public class Preview {
         // shift band
         if(frac>=SHIFT_AMBER){
             Color col=frac>=SHIFT_RED?RED:AMBER;
-            rectF(0,0,W,H*0.014f,col); rectF(0,H*0.014f,W,H*0.030f,al(col,0x33));
+            rectF(0,0,W,H*0.009f,col); rectF(0,H*0.009f,W,H*0.017f,al(col,0x33));
         }
         // tach
         final int N=24; float inner=barW*0.18f,x0=rpmX+inner,x1=rpmX+barW-inner;
@@ -202,7 +220,7 @@ public class Preview {
         // steering
         float deg=g(STEER);
         G.setColor(h(STEER)?WHITE:GREY); font(H*0.0958f,true);
-        text(h(STEER)?fmt(deg,0):"--",W*0.505f,H*0.1625f,1);
+        text(h(STEER)?fmt(deg,0):"--",W*0.655f,H*0.1625f,1);
         AffineTransform old=G.getTransform();
         G.rotate(Math.toRadians(h(STEER)?deg:0),dialCx,dialCy);
         G.setColor(h(STEER)?CYAN:GREY); G.setStroke(new BasicStroke(dialR*0.17f));
@@ -257,24 +275,36 @@ public class Preview {
         float thr=h(ACCEL)?Math.max(0,Math.min(1,g(ACCEL)/ACCEL_FULL)):0f;
         if(thr>0.005f){ rectF(m+2,pedalY0+3,m+half*thr,pedalY1-3,al(CYAN,0x66));
                         rectF(m+half*thr-4,pedalY0+3,m+half*thr,pedalY1-3,CYAN); }
-        float net=thr-brk;
-        if(Math.abs(net)>0.02f){
-            boolean up=net>0; float mag=Math.abs(net);
-            float ay=carCy-carH*0.60f, aw=carW*0.15f*(0.55f+mag*0.45f), ah=carH*0.13f*(0.55f+mag*0.45f);
-            GeneralPath a=new GeneralPath();
-            if(up){ a.moveTo(carCx,ay-ah); a.lineTo(carCx+aw,ay); a.lineTo(carCx+aw*0.42f,ay);
-                    a.lineTo(carCx+aw*0.42f,ay+ah*0.55f); a.lineTo(carCx-aw*0.42f,ay+ah*0.55f);
-                    a.lineTo(carCx-aw*0.42f,ay); a.lineTo(carCx-aw,ay); }
-            else  { a.moveTo(carCx,ay+ah*0.55f); a.lineTo(carCx+aw,ay-ah*0.30f); a.lineTo(carCx+aw*0.42f,ay-ah*0.30f);
-                    a.lineTo(carCx+aw*0.42f,ay-ah); a.lineTo(carCx-aw*0.42f,ay-ah);
-                    a.lineTo(carCx-aw*0.42f,ay-ah*0.30f); a.lineTo(carCx-aw,ay-ah*0.30f); }
-            a.closePath();
-            G.setColor(al(up?CYAN:RED,0x55)); G.fill(a);
-            G.setColor(up?CYAN:RED); G.setStroke(new BasicStroke(2f)); G.draw(a);
-        }
+        drawHeading();
         // speed
         G.setColor(h(SPEED)?WHITE:GREY); font(H*0.145f,true);
         text(h(SPEED)?fmt(g(SPEED),0):"--",W*0.80f,H*0.935f,1);
+    }
+
+    static void drawHeading(){
+        if(!h(STEER)&&!h(SPEED)) return;
+        float t=h(STEER)?clamp1(g(STEER)/STEER_FULL):0f;
+        float spd=h(SPEED)?Math.max(0,Math.min(1,g(SPEED)/120f)):0f;
+        float baseX=carCx, baseY=carCy-carH*0.56f;
+        float len=carH*(0.17f+0.14f*spd);
+        float tipX=baseX+t*carW*0.60f, tipY=baseY-len;
+        float ctrlX=baseX+t*carW*0.16f, ctrlY=baseY-len*0.55f;
+        int alpha=(int)(0x66+0x99*spd);
+        GeneralPath sh=new GeneralPath();
+        sh.moveTo(baseX,baseY); sh.quadTo(ctrlX,ctrlY,tipX,tipY);
+        G.setColor(al(CYAN,alpha/3));
+        G.setStroke(new BasicStroke(carW*0.100f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(sh);
+        G.setColor(al(CYAN,alpha));
+        G.setStroke(new BasicStroke(carW*0.038f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(sh);
+        float dx=tipX-ctrlX, dy=tipY-ctrlY;
+        float m=(float)Math.sqrt(dx*dx+dy*dy); if(m<0.001f) return;
+        dx/=m; dy/=m; float px=-dy, py=dx;
+        float hl=carH*0.090f, hw=carW*0.100f;
+        GeneralPath hd=new GeneralPath();
+        hd.moveTo(tipX+dx*hl,tipY+dy*hl); hd.lineTo(tipX+px*hw,tipY+py*hw);
+        hd.lineTo(tipX-px*hw,tipY-py*hw); hd.closePath();
+        G.setColor(al(CYAN,alpha/3)); G.fill(hd);
+        G.setColor(al(CYAN,alpha)); G.setStroke(new BasicStroke(2.2f)); G.draw(hd);
     }
 
     static void seedTrail(float lat,float lon,boolean corner){
