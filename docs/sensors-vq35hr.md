@@ -1,8 +1,15 @@
 # Observed sensor inventory — Q50 3.5 Hybrid (V37, VQ35HR)
 
-Read off `SensorListActivity` on the actual car (Taiwan-spec Q50 3.5 Hybrid, InTouch lower
-display). This supersedes guesses carried over from the VR30DDTT Q60 the original project was
-developed on.
+Measured on the car itself — a Taiwan-market Q50 3.5 Hybrid, on the InTouch lower display — first
+by listing everything `SensorManager` reports, then by watching the live values on the road. It
+supersedes the figures carried over from the 2018 Q60 Red Sport 400 (VR30DDTT) the original
+project was developed on: the type numbers are the same, the meanings and scalings often are not.
+
+The screens used to gather this are no longer in the app; they were scaffolding, and this file is
+what they were for. `git log` has them if they are ever needed again.
+
+**If you have a different Q50 or Q60, do not assume this table applies to your car.** Verify each
+signal against your own gauges before building anything on it.
 
 **39 sensors, types 12–50, contiguous with no gaps. Every one has vendor `Ygomi`.** There are
 no standard Android sensors (no accelerometer, no gyro) — the whole list is the vehicle bus.
