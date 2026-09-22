@@ -24,7 +24,12 @@ that needs live values, which is what `SensorWatchActivity` exists to find out.
 |---|---|
 | 17 `VEHICLE_SPEED` | **raw value is km/h directly.** The original notes were right; the `max=655340` reading was not a clue to anything. |
 | 25 `STEERING_ANGLE` | **raw value is degrees directly**, **signed: right positive, left negative**, roughly **±390 at full lock**, carrying one decimal. Note this is *not* the 0.1-degree unit the `resolution` field implies — 390 raw is 390°, matching the quick DAS rack. Fully calibrated; ready to use as-is. |
-| 26 `REGENERATION` | **live.** Delivers events continuously (n rose with every other signal); it simply reads a flat 0.000 while stationary with the engine off. An earlier note recording it as dead was a misreading — a constant zero is not an absent signal. Its behaviour under load is still unknown and is the one open hybrid question. |
+| 12 `EFFECTIVE_TORQUE` | **live and wide-ranging** — −400 (rest placeholder) to 1647.5 over one 578 s drive. The only powertrain signal on this car that genuinely moves. Unit unknown, so it is displayed uncalibrated. |
+| 26 `REGENERATION` | **flat zero.** Held 0.000 for min, max and current across a full 578 s drive with braking, having previously looked alive only because a constant zero counts events like any other value. Nothing in the Sensor API carries hybrid energy flow. |
+| 13 `ENGINE_RPM` | **unreliable.** Stayed at 0.000 for an entire 578 s drive reaching 41 km/h, on a car whose coolant was already at 83 °C. Either it only publishes under conditions not yet identified, or it does not publish at all. Not safe to build on. |
+| 23 `ACCELERATOR_PEDAL_POSITION` | peaked at **39.25** under ordinary throttle, which reads as a percentage despite the declared maximum of 1000. |
+| 24 `BRAKE_PEDAL_POSITION` | 0 to **54** observed under normal braking, against a declared maximum of 90. |
+| 26 `REGENERATION` (earlier note) | **live.** Delivers events continuously (n rose with every other signal); it simply reads a flat 0.000 while stationary with the engine off. An earlier note recording it as dead was a misreading — a constant zero is not an absent signal. Its behaviour under load is still unknown and is the one open hybrid question. |
 | 28 `ECO_MODE` | **dead.** Declared in the inventory and never delivers an event, while every neighbouring signal counts up. |
 | 24 `BRAKE_PEDAL_POSITION` | live; 10 to 68 observed over one brake application against a declared max of 90. |
 | 20 / 21 G axes | raw value is **g directly** — −0.010 to −0.020 on type 21 at rest on a slight slope. `max=2000` is another placeholder. |
@@ -93,8 +98,8 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 
 | Type | Name | max | res | Notes |
 |---|---|---|---|---|
-| 12 | `VS_ID_EFFECTIVE_TORQUE` | 879.0 | 1.0 | placeholder max; ~Nm on VR30 |
-| 13 | `VS_ID_ENGINE_RPM` | 879.0 | 1.0 | placeholder max; reads 0 when the engine is off in READY |
+| 12 | `VS_ID_EFFECTIVE_TORQUE` | 879.0 | 1.0 | **live, −400 at rest to 1647.5 driving.** Unit unknown; max field is a placeholder |
+| 13 | `VS_ID_ENGINE_RPM` | 879.0 | 1.0 | **unreliable — 0.000 for an entire warm 578 s drive** |
 | 14 | `VS_ID_ENGINE_COOLANT_TEMPERATURE` | 214.0 | 1.0 | °C direct |
 | 15 | `VS_ID_ENGINE_OIL_TEMPERATURE` | 205.0 | 1.0 | reported −50 at rest on this car |
 | 16 | `VS_ID_ENGINE_OIL_PRESSURE` | 879.0 | 1.0 | placeholder max; MPa on VR30 |
@@ -107,7 +112,7 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 | 23 | `VS_ID_ACCELERATOR_PEDAL_POSITION` | 1000.0 | 0.001 | **pedal, not throttle** — distinct on a hybrid |
 | 24 | `VS_ID_BRAKE_PEDAL_POSITION` | 90.0 | 1.0 | **live**, 10–68 observed against a declared max of 90 |
 | 25 | `VS_ID_STEERING_ANGLE` | 9000.0 | 0.1 | **confirmed: degrees, right +, left −, ±390 full lock, 1 decimal** |
-| 26 | `VS_ID_REGENERATION` | 63500.0 | 1.0 | **live; flat 0.000 at rest with the engine off. Behaviour under load still unknown** |
+| 26 | `VS_ID_REGENERATION` | 63500.0 | 1.0 | **dead — flat 0.000 across a full drive with braking** |
 | 27 | `VS_ID_ILLUMI` | −0.0 | −0.0 | enum, day/night illumination |
 | 28 | `VS_ID_ECO_MODE` | −0.0 | −0.0 | **dead — never delivers an event** |
 | 29 | `VS_ID_FUEL_CONSUMPTION_HISTORY` | 200000.0 | 1.0 | |
@@ -135,6 +140,21 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 
 Rows 46/47 differ between two photographs of the same screen; the values above are whichever
 the sharper frame showed. Re-read them on the unit before relying on either.
+
+## Gear position while in D
+
+Type 22 publishes the selector position, not the ratio: `P/R/N/D = 1/2/3/4`, with the
+individual gears appearing only as `16..22` for `M1..M7` in manual mode. In D it reports a
+bare `4` and nothing more, on the reference car.
+
+Whether the hybrid differs is worth one look, which is why type 22 is now on the watcher's
+panel: drive in D and see whether the number ever leaves 4. If it does not, the ratio is
+simply not published, and the two ways to have it on screen are to use the manual gate or the
+paddles (which already display correctly as M1–M7), or to infer it from the rpm-to-speed
+ratio. That inference needs type 13, which this car is not reliably publishing, so it is
+blocked until the rpm question is settled.
+
+Note the car is a **7-speed**, so the manual range is M1–M7 rather than 1–5.
 
 ## Corrections to the original handover notes
 

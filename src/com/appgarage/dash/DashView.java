@@ -59,18 +59,26 @@ import java.util.Random;
 public class DashView extends View {
 
     // ---- signal types, all confirmed on this car ----
-    private static final int RPM = 13, COOLANT = 14, SPEED = 17, GEAR = 22,
+    private static final int TORQUE = 12, RPM = 13, COOLANT = 14, SPEED = 17, GEAR = 22,
             ACCEL = 23, BRAKE = 24, STEER = 25, G_LAT = 20, G_LONG = 21,
             TP_FR = 36, TP_FL = 37, TP_RR = 38, TP_RL = 39;
 
     // ---- calibration ----
-    private static final float REDLINE = 7000f, SHIFT_AMBER = 0.84f, SHIFT_RED = 0.94f;
+    // The left column shows torque, not rpm. Over a 578 s drive type 13 never left 0.000
+    // while type 12 ranged to 1647.5, so torque is the powertrain signal this car actually
+    // publishes. The scale is NOT calibrated -- the unit is unknown -- so the column is drawn
+    // in amber to say so rather than pretending to be a engineering value.
+    private static final float TORQUE_MAX = 1800f;      // just above the highest yet observed
+    private static final float TORQUE_INVALID = -300f;  // rest placeholder sits at -400
+    private static final float LOAD_AMBER = 0.84f, LOAD_RED = 0.94f;
     private static final float COOLANT_MIN = 40f, COOLANT_MAX = 120f;
     private static final float COOLANT_COLD = 60f, COOLANT_WARN = 105f;
     private static final float TPMS_LOW = 30f, TPMS_HIGH = 44f;
     private static final float STEER_FULL = 390f;   // measured full lock
     private static final float BRAKE_FULL = 90f;    // type 24 declares max 90
-    private static final float ACCEL_FULL = 1000f;  // type 23 declares max 1000
+    // Type 23 declares a maximum of 1000 but peaked at 39.25 over a drive with ordinary
+    // throttle, which reads as a percentage. On the declared scale the bar would barely move.
+    private static final float ACCEL_FULL = 100f;
     private static final float G_FULL = 1.0f;       // friction circle outer ring
     private static final float EV_RPM = 50f, EV_KMH = 3f;
 
@@ -152,8 +160,8 @@ public class DashView extends View {
 
     /** representative values so the layout can be judged off-car */
     public void seedDemo() {
-        setValue(RPM, 3120f); setValue(COOLANT, 88f); setValue(SPEED, 64f); setValue(GEAR, 4f);
-        setValue(ACCEL, 340f); setValue(BRAKE, 0f); setValue(STEER, 12f);
+        setValue(TORQUE, 980f); setValue(RPM, 0f); setValue(COOLANT, 88f);
+        setValue(SPEED, 64f); setValue(GEAR, 4f); setValue(ACCEL, 34f); setValue(BRAKE, 0f); setValue(STEER, 12f);
         setValue(G_LAT, 0.32f); setValue(G_LONG, -0.18f);
         setValue(TP_FL, 39.2f); setValue(TP_FR, 39.2f);
         setValue(TP_RL, 38.5f); setValue(TP_RR, 38.2f);
@@ -228,8 +236,8 @@ public class DashView extends View {
         else drawStatic(c);                        // out of memory: pay it every frame
 
         float pulse = 0.55f + 0.45f * (float) Math.sin(now * 0.009);
-        drawShiftBand(c, now);
-        drawTach(c, now);
+        drawLoadBand(c, now);
+        drawTorque(c, now);
         drawCoolant(c, pulse);
         drawGear(c, now);
         drawEv(c, pulse);
@@ -301,14 +309,15 @@ public class DashView extends View {
 
     /** ease every displayed value toward its target and advance the animation state */
     private void step(long now, float dt) {
-        ease(RPM, 0.30f, dt); ease(COOLANT, 0.06f, dt); ease(SPEED, 0.22f, dt);
+        ease(TORQUE, 0.30f, dt); ease(RPM, 0.30f, dt);
+        ease(COOLANT, 0.06f, dt); ease(SPEED, 0.22f, dt);
         ease(STEER, 0.40f, dt); ease(ACCEL, 0.35f, dt); ease(BRAKE, 0.35f, dt);
         ease(G_LAT, 0.30f, dt); ease(G_LONG, 0.30f, dt);
         for (int i = 0; i < 4; i++) d[tyreType[i]] = v[tyreType[i]];   // pressures never jump
         d[GEAR] = v[GEAR];
 
         // tachometer peak-hold: ride the peak, hold briefly, then fall away
-        float frac = tachFrac();
+        float frac = loadFrac();
         if (frac >= peak) { peak = frac; peakHold = now + 700; peakVel = 0f; }
         else if (now > peakHold) {
             peakVel += dt * 0.55f;
@@ -338,9 +347,12 @@ public class DashView extends View {
         d[t] += (v[t] - d[t]) * a;
     }
 
-    /** 0..1 of redline, overridden by the launch sweep while it runs */
-    private float tachFrac() {
-        float frac = h(RPM) ? d[RPM] / REDLINE : 0f;
+    /** whether type 12 is carrying a real reading rather than its rest placeholder */
+    private boolean torqueValid() { return h(TORQUE) && d[TORQUE] > TORQUE_INVALID; }
+
+    /** 0..1 of the torque scale, overridden by the launch sweep while it runs */
+    private float loadFrac() {
+        float frac = torqueValid() ? d[TORQUE] / TORQUE_MAX : 0f;
         if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
         long age = System.currentTimeMillis() - t0;
         if (age < SWEEP_MS) {
@@ -354,11 +366,12 @@ public class DashView extends View {
 
     // ------------------------------------------------------------------ live parts
 
-    private void drawShiftBand(Canvas c, long now) {
-        float frac = tachFrac();
-        if (frac < SHIFT_AMBER) return;
+    /** high-load band. It cannot be a shift light: rpm is not reliably published here. */
+    private void drawLoadBand(Canvas c, long now) {
+        float frac = loadFrac();
+        if (frac < LOAD_AMBER) return;
         int col;
-        if (frac >= SHIFT_RED) {
+        if (frac >= LOAD_RED) {
             boolean on = ((now / 110) & 1L) == 0L;               // hard flash at the limit
             if (!on) return;
             col = RED;
@@ -372,28 +385,28 @@ public class DashView extends View {
         c.drawRect(0, H * 0.009f, W, H * 0.017f, p);
     }
 
-    private void drawTach(Canvas c, long now) {
+    private void drawTorque(Canvas c, long now) {
         final int N = 24;
         float inner = barW * 0.18f;
         float x0 = rpmX + inner, x1 = rpmX + barW - inner;
         float span = (rpmY1 - rpmY0) - inner * 2f;
         float seg = span / N;
-        float frac = tachFrac();
+        float frac = loadFrac();
         int on = (int) (frac * N + 0.5f);
-        int amberFrom = (int) (SHIFT_AMBER * N), redFrom = (int) (SHIFT_RED * N);
+        int amberFrom = (int) (LOAD_AMBER * N), redFrom = (int) (LOAD_RED * N);
 
         p.setStyle(Paint.Style.FILL);
         for (int i = 0; i < N; i++) {
             float t = rpmY1 - inner - (i + 1) * seg;
             float top = t + seg * 0.10f, bot = t + seg * 0.82f;
             boolean lit = i < on;
-            int col = i >= redFrom ? RED : i >= amberFrom ? AMBER : CYAN;
+            int col = i >= redFrom ? RED : i >= amberFrom ? 0xFFFFD060 : AMBER;
             if (lit) {
                 p.setColor((col & 0x00FFFFFF) | 0x55000000);    // bloom pass
                 c.drawRect(x0 - 2.5f, top - 2.5f, x1 + 2.5f, bot + 2.5f, p);
                 p.setColor(col);
             } else {
-                p.setColor(i >= redFrom ? 0xFF3A1414 : i >= amberFrom ? 0xFF3A2E14 : DARK);
+                p.setColor(i >= redFrom ? 0xFF3A1414 : i >= amberFrom ? 0xFF3A3014 : 0xFF2A2312);
             }
             c.drawRect(x0, top, x1, bot, p);
         }
@@ -405,9 +418,9 @@ public class DashView extends View {
             c.drawRect(rpmX - 2f, y - 1.5f, rpmX + barW + 2f, y + 1.5f, p);
         }
 
-        int n = h(RPM) ? fmt(d[RPM], 0) : dashes();
+        int n = torqueValid() ? fmt(d[TORQUE], 0) : dashes();
         drawNum(c, n, rpmX, H * 0.1667f, 0, H * 0.062f,
-                h(RPM) ? (frac >= SHIFT_RED ? RED : WHITE) : GREY);
+                !torqueValid() ? GREY : frac >= LOAD_RED ? RED : AMBER);
     }
 
     private void drawCoolant(Canvas c, float pulse) {
@@ -651,14 +664,14 @@ public class DashView extends View {
         drawCar(c);
 
         // both scales face inward: against the screen edge they were half off the panel
-        columnScale(c, rpmX + barW, false, 8);      // 0..7000 rpm, a tick per 1000
+        columnScale(c, rpmX + barW, false, 6);      // 0..1800 torque, a tick per 300
         columnScale(c, cooX, true, 4);              // 40..120 C, a tick per 20
         panel(c, rpmX, rpmY0, rpmX + barW, rpmY1);
         panel(c, cooX, rpmY0, cooX + barW, rpmY1);
         pText.setColor(WHITE);
         pText.setTextSize(H * 0.071f);
         pText.setTextAlign(Paint.Align.LEFT);
-        c.drawText(cjk ? "轉速" : "RPM", rpmX, H * 0.0833f, pText);
+        c.drawText(cjk ? "扭力" : "TORQUE", rpmX, H * 0.0833f, pText);
         pText.setTextAlign(Paint.Align.RIGHT);
         c.drawText(cjk ? "水溫" : "COOLANT", cooX + barW, H * 0.0833f, pText);
 

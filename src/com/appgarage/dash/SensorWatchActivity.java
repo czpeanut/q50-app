@@ -70,13 +70,19 @@ public class SensorWatchActivity extends Activity
      * as were all the other max fields), and 25 is degrees directly, +-390 at full lock, with
      * one decimal -- not the 0.1-degree units the resolution field suggested.
      *
-     * 26 stays on the list only so a second look costs nothing while driving; it delivered no
-     * events at all on the first attempt, which leaves nothing in the inventory carrying
-     * hybrid state. 28 and the two G axes are still untested.
+     * 26 REGENERATION and 28 ECO_MODE are off the list: over a 578 s drive 26 never left
+     * 0.000 and 28 never delivered an event at all. 12 EFFECTIVE_TORQUE replaces them as the
+     * one powertrain signal that genuinely moves -- it ranged to 1647.5 on the same drive
+     * while 13 ENGINE_RPM stayed at zero throughout.
+     *
+     * 22 GEAR_POSITION is on the list to settle whether this car publishes the ratio while in
+     * D. On the reference car it reports only 4 for D, with the individual gears appearing
+     * as 16..22 in manual mode; watching it change (or not) at speed is the only way to know
+     * whether the hybrid behaves the same.
      */
-    private static final int[] WATCH = { 13, 17, 25, 26, 28, 23, 24, 20, 21 };
+    private static final int[] WATCH = { 12, 22, 17, 25, 13, 23, 24, 20, 21 };
     private static final String[] WATCH_LABEL = {
-        "13 RPM", "17 SPEED", "25 STEER", "26 REGEN", "28 ECO_MODE",
+        "12 TORQUE", "22 GEAR", "17 SPEED", "25 STEER", "13 RPM",
         "23 ACCEL", "24 BRAKE", "20 G_LAT", "21 G_LONG"
     };
 

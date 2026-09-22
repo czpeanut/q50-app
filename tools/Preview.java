@@ -14,12 +14,12 @@ import javax.imageio.ImageIO;
  * passed in as a frozen frame rather than run.
  */
 public class Preview {
-    static final int RPM=13,COOLANT=14,SPEED=17,GEAR=22,ACCEL=23,BRAKE=24,STEER=25,
+    static final int TORQUE=12,RPM=13,COOLANT=14,SPEED=17,GEAR=22,ACCEL=23,BRAKE=24,STEER=25,
         G_LAT=20,G_LONG=21,TP_FR=36,TP_FL=37,TP_RR=38,TP_RL=39;
-    static final float REDLINE=7000f, SHIFT_AMBER=0.84f, SHIFT_RED=0.94f;
+    static final float TORQUE_MAX=1800f, TORQUE_INVALID=-300f, LOAD_AMBER=0.84f, LOAD_RED=0.94f;
     static final float COOLANT_MIN=40f, COOLANT_MAX=120f, COOLANT_COLD=60f, COOLANT_WARN=105f;
     static final float TPMS_LOW=30f, TPMS_HIGH=44f, STEER_FULL=390f;
-    static final float BRAKE_FULL=90f, ACCEL_FULL=1000f, G_FULL=1.0f, EV_RPM=50f, EV_KMH=3f;
+    static final float BRAKE_FULL=90f, ACCEL_FULL=100f, G_FULL=1.0f, EV_RPM=50f, EV_KMH=3f;
     static final Color BG_TOP=c(0xFF060A12), BG_BOT=c(0xFF0C1420);
     static final Color CYAN=c(0xFF3FD2FF), CYAN_DIM=c(0xFF1B4E66);
     static final Color WHITE=c(0xFFEAF6FF), GREY=c(0xFF55697C), DARK=c(0xFF13212C);
@@ -202,7 +202,8 @@ public class Preview {
         if(x>=16&&x<=22) return "M"+(x-15);
         return "--";
     }
-    static float tachFrac(){ float f=h(RPM)?g(RPM)/REDLINE:0f; return Math.max(0,Math.min(1,f)); }
+    static boolean torqueValid(){ return h(TORQUE)&&g(TORQUE)>TORQUE_INVALID; }
+    static float loadFrac(){ float f=torqueValid()?g(TORQUE)/TORQUE_MAX:0f; return Math.max(0,Math.min(1,f)); }
     static float clamp1(float x){ return x<-1f?-1f:x>1f?1f:x; }
 
     static BufferedImage carArt(){
@@ -245,10 +246,10 @@ public class Preview {
 
     static void drawStatic(){
         backdrop(); arcs(); starfield(); pool(); drawCar();
-        columnScale(rpmX+barW,false,8); columnScale(cooX,true,4);
+        columnScale(rpmX+barW,false,6); columnScale(cooX,true,4);
         frame(rpmX,rpmY0,rpmX+barW,rpmY1); frame(cooX,rpmY0,cooX+barW,rpmY1);
         G.setColor(WHITE); font(H*0.071f,false);
-        text(cjk?"轉速":"RPM",rpmX,H*0.0833f,0);
+        text(cjk?"扭力":"TORQUE",rpmX,H*0.0833f,0);
         text(cjk?"水溫":"COOLANT",cooX+barW,H*0.0833f,2);
         frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),H*0.0458f);
         frame(evBox);   label(cjk?"純電":"ELECTRIC",(float)evBox.getCenterX(),H*0.0458f);
@@ -287,25 +288,25 @@ public class Preview {
     }
 
     static void drawLive(){
-        float frac=tachFrac();
+        float frac=loadFrac();
         // shift band
-        if(frac>=SHIFT_AMBER){
-            Color col=frac>=SHIFT_RED?RED:AMBER;
+        if(frac>=LOAD_AMBER){
+            Color col=frac>=LOAD_RED?RED:AMBER;
             rectF(0,0,W,H*0.009f,col); rectF(0,H*0.009f,W,H*0.017f,al(col,0x33));
         }
         // tach
         final int N=24; float inner=barW*0.18f,x0=rpmX+inner,x1=rpmX+barW-inner;
         float span=(rpmY1-rpmY0)-inner*2f, seg=span/N;
-        int on=(int)(frac*N+0.5f), amberFrom=(int)(SHIFT_AMBER*N), redFrom=(int)(SHIFT_RED*N);
+        int on=(int)(frac*N+0.5f), amberFrom=(int)(LOAD_AMBER*N), redFrom=(int)(LOAD_RED*N);
         for(int i=0;i<N;i++){
             float t=rpmY1-inner-(i+1)*seg, top=t+seg*0.10f, bot=t+seg*0.82f;
-            Color col=i>=redFrom?RED:i>=amberFrom?AMBER:CYAN;
+            Color col=i>=redFrom?RED:i>=amberFrom?c(0xFFFFD060):AMBER;
             if(i<on){ rectF(x0-2.5f,top-2.5f,x1+2.5f,bot+2.5f,al(col,0x55)); rectF(x0,top,x1,bot,col); }
-            else rectF(x0,top,x1,bot,i>=redFrom?c(0xFF3A1414):i>=amberFrom?c(0xFF3A2E14):DARK);
+            else rectF(x0,top,x1,bot,i>=redFrom?c(0xFF3A1414):i>=amberFrom?c(0xFF3A3014):c(0xFF2A2312));
         }
         if(peak>0.02f){ float y=rpmY1-inner-peak*span; rectF(rpmX-2f,y-1.5f,rpmX+barW+2f,y+1.5f,WHITE); }
-        G.setColor(h(RPM)?(frac>=SHIFT_RED?RED:WHITE):GREY); font(H*0.062f,true);
-        num(h(RPM)?fmt(g(RPM),0):"--",rpmX,H*0.1667f,0);
+        G.setColor(!torqueValid()?GREY:frac>=LOAD_RED?RED:AMBER); font(H*0.062f,true);
+        num(torqueValid()?fmt(g(TORQUE),0):"--",rpmX,H*0.1667f,0);
         // coolant
         float ix=barW*0.18f,cx0=cooX+ix,cx1=cooX+barW-ix,cy0=rpmY0+ix,cy1=rpmY1-ix;
         float cf=h(COOLANT)?(g(COOLANT)-COOLANT_MIN)/(COOLANT_MAX-COOLANT_MIN):0f;
@@ -447,20 +448,20 @@ public class Preview {
         layout();
         if(mode.equals("warn")){
             pulse=1f; peak=0.99f; maxG=0.94f; gearFlash=false;
-            set(RPM,6900f); set(COOLANT,109f); set(SPEED,118f); set(GEAR,21f);
+            set(TORQUE,1740f); set(RPM,0f); set(COOLANT,109f); set(SPEED,118f); set(GEAR,21f);
             set(ACCEL,0f); set(BRAKE,62f); set(STEER,-148f);
             set(G_LAT,-0.35f); set(G_LONG,0.88f); seedTrail(-0.35f,0.88f,true);
             set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,27.5f);
         } else if(mode.equals("ev")){
             pulse=1f; peak=0.22f; maxG=0.18f; gearFlash=false;
-            set(RPM,0f); set(COOLANT,52f); set(SPEED,31f); set(GEAR,4f);
-            set(ACCEL,120f); set(BRAKE,0f); set(STEER,-4f);
+            set(TORQUE,-400f); set(RPM,0f); set(COOLANT,52f); set(SPEED,31f); set(GEAR,4f);
+            set(ACCEL,12f); set(BRAKE,0f); set(STEER,-4f);
             set(G_LAT,0.05f); set(G_LONG,-0.03f); seedTrail(0.05f,-0.03f,false);
             set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,38.2f);
         } else {
             pulse=0.6f; peak=0.62f; maxG=0.47f; gearFlash=false;
-            set(RPM,3120f); set(COOLANT,88f); set(SPEED,64f); set(GEAR,4f);
-            set(ACCEL,340f); set(BRAKE,0f); set(STEER,12f);
+            set(TORQUE,980f); set(RPM,0f); set(COOLANT,88f); set(SPEED,64f); set(GEAR,4f);
+            set(ACCEL,34f); set(BRAKE,0f); set(STEER,12f);
             set(G_LAT,0.32f); set(G_LONG,-0.18f); seedTrail(0.32f,-0.18f,true);
             set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,38.2f);
         }
