@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build AppGarage Dash: Java -> dex -> signed APK (minSdk 10, pure-Java, no native libs),
+# Build O.R.I.O.N.: Java -> dex -> signed APK (minSdk 10, pure-Java, no native libs),
 # then wrap it into a loadable .epk using the public OBU cert in keys/ (for the App Garage loader).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -22,7 +22,9 @@ VC=$(date +%s)
 
 rm -rf build && mkdir -p build/classes build/dex
 echo "== [1/6] javac (release 8) =="
-"$JAVAC" --release 8 -g -d build/classes -classpath "$ANDJAR" src/com/appgarage/dash/*.java
+# -encoding UTF-8 is not optional: the sources carry CJK labels, and without it javac
+# silently decodes them with the platform default and the head unit shows mojibake.
+"$JAVAC" --release 8 -encoding UTF-8 -g -d build/classes -classpath "$ANDJAR" src/com/appgarage/dash/*.java
 echo "  compiled: $(find build/classes -name '*.class' | wc -l) classes"
 
 echo "== [2/6] d8 -> classes.dex (min-api 10) =="
@@ -32,7 +34,8 @@ ls -l build/dex/classes.dex
 echo "== [3/6] package APK (versionCode=$VC) =="
 # stamp versionCode into a temp manifest (aapt honors the manifest value; --version-code is a no-op here)
 sed "s/android:versionCode=\"[0-9]*\"/android:versionCode=\"$VC\"/" AndroidManifest.xml > build/AndroidManifest.xml
-"$AAPT" package -f -M build/AndroidManifest.xml -S res -I "$ANDJAR" -F build/dash.unsigned.apk
+# -A assets packages assets/ (car.png, the user-supplied car outline; optional at runtime)
+"$AAPT" package -f -M build/AndroidManifest.xml -S res -A assets -I "$ANDJAR" -F build/dash.unsigned.apk
 ( cd build/dex && "$AAPT" add ../dash.unsigned.apk classes.dex >/dev/null )
 
 echo "== [4/6] zipalign =="

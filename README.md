@@ -1,129 +1,140 @@
-# AppGarage Dash
+# O.R.I.O.N.
 
-<img src="docs/icon.png" width="88" align="right" alt="AppGarage Dash icon" />
+<img src="docs/icon.png" width="88" align="right" alt="O.R.I.O.N. icon" />
 
-A **dongle-free vehicle gauge dashboard** that runs on the factory infotainment screen of the
-**Infiniti InTouch** head unit in the **V37 Q50 / Q60** — reading the car's own CAN-bus signals
-(RPM, oil temp, **oil pressure**, coolant, per-wheel TPMS, G-forces, gear, throttle, power) with
-**no OBD dongle, no Bluetooth, no phone**.
+A gauge dashboard for the **Infiniti Q50 3.5 Hybrid (V37)** that runs on the factory InTouch
+screen and reads the car's own CAN signals — **no OBD dongle, no Bluetooth, no phone**.
 
-![dashboard running on the head unit](docs/dashboard.jpg)
+The head unit's Android layer publishes the vehicle bus as ordinary Android `Sensor` objects, so
+the whole thing is a normal app reading `SensorManager`. Nothing is written to the bus; nothing in
+the factory firmware is modified.
 
-*(above: live idle data on the unit it was developed on — "42 CAN signals live")*
+![the dashboard on the head unit](docs/dashboard.png)
 
-## ⚠️ Compatibility — read this first
+---
 
-**Target:** the **V37 Infiniti Q50 / Q60** whose InTouch head unit runs the **Android 2.3.x**
-revision this was reverse-engineered from (a customized **Android 2.3.7, API 10, x86** unit).
-Developed and verified on a **2018 Q60 Red Sport 400 AWD (V37, VR30DDTT)**; the bundled public OBU
-cert and the sensor-type → unit calibration both come from that car's firmware.
+## ⚠️ Read this before installing
 
-**It is not guaranteed across every Q50/Q60.** Other model years, regions, and later InTouch
-hardware/software ship different firmware (different OS/SoC, different CAN maps) — the app may not
-load, or the sensor numbers/scalings may be off. If your unit isn't that **Android 2.3.x InTouch**,
-treat this as **unverified**: only run it on a matching unit, on **a vehicle you own**, and
-sanity-check the scalings against your own gauges.
+**This was developed and verified on one car: a Taiwan-market Q50 3.5 Hybrid (VQ35HR + motor),
+whose InTouch unit runs a customized Android 2.3.7 (API 10, x86).**
 
-## How it works
+Other years, regions and InTouch generations ship different firmware — different CAN maps,
+sometimes a different OS entirely. On those, the app may refuse to load, or it may load and show
+numbers that mean something else. **Signal type numbers are not a standard; they are whatever your
+unit happens to publish.**
 
-Under its Linux nav UI, this InTouch unit runs a customized **Android 2.3.7 (API 10, x86)** that
-hosts the "App Garage." Two things make this app possible:
+If your car is not that unit, treat everything here as unverified, install only on **a vehicle you
+own**, and check every reading against your own gauges before believing it.
 
-1. **It exposes the vehicle CAN bus as standard Android `Sensor`s** (`VS_ID_*`, vendor "Ygomi",
-   sensor types 12–53). Any app reads them with plain `SensorManager.getDefaultSensor(type)` +
-   `registerListener` → `onSensorChanged(e).values[0]`. Reading values needs
-   `com.ygomi.permission.IVI_CAN_READ`, which is a *dangerous*-level permission → auto-granted to a
-   normal self-signed app on Android 2.3.
-2. **`ivi.isDistractive="false"`** in the manifest sets `runningRestriction=0`, so the app stays
-   **usable while driving** (the platform defaults unmarked apps to restricted).
+The project only ever **reads**. It sends no CAN frames, changes no firmware, and can be removed
+from App Garage like any other app.
 
-Pure-Java, ships no native code (runs on the x86 CPU), needs no Google services, works fully offline.
+---
 
-## Signals & calibration
+## What the car actually publishes
 
-Raw sensor values are unlabeled floats; these were calibrated against the VR30DDTT they were read from:
+The single most useful thing in this repository for another owner is probably
+**[`docs/sensors-vq35hr.md`](docs/sensors-vq35hr.md)** — the full inventory of all 39 signals this
+car exposes, with what each one really means, measured on the road rather than assumed.
 
-| Gauge | Sensor | Scaling | Notes |
-|---|---|---|---|
-| RPM | 13 | direct | warm idle ~650 (cold/warmup higher) |
-| Coolant / Oil temp | 14 / 15 | direct °C | |
-| **Oil pressure** | 16 | raw × 145 → **psi** | ~22 psi warm idle (raw is MPa) |
-| Speed | 17 | raw × 0.621 → **mph** | raw is km/h |
-| Torque | 12 | ≈ Nm | |
-| Power | 32 | raw × 1.047e-4 → **kW** | raw = rpm × torque |
-| TPMS ×4 | 36–39 | direct **psi** | |
-| Throttle | 23 | % | |
-| Gear | 22 | enum | P=1, R=2, N=3, D=4, M1–M7=16–22 (confirmed on-car) |
-| G-force lat/long | 20 / 21 | raw | full-scale ≈ 1 g assumed |
+Some of it is counter-intuitive, and most of it was learned the hard way:
 
-These mappings are specific to the firmware above — treat them as a starting point on any other unit.
-Constants live at the top of [`GaugeView.java`](src/com/appgarage/dash/GaugeView.java).
+| Signal | What it turned out to be |
+|---|---|
+| `VS_ID_EFFECTIVE_TORQUE` (12) | The **electric motor's** torque, **signed**: positive regenerates, negative drives. Not engine torque. |
+| `VS_ID_STEERING_ANGLE` (25) | Degrees directly, right positive, ±390 at full lock. Not the 0.1° its `resolution` field implies. |
+| `VS_ID_VEHICLE_SPEED` (17) | Plain km/h, despite a `maximumRange` of 655340. |
+| `VS_ID_ENGINE_RPM` (13) | **Dead.** Held 0.000 through entire warm drives. |
+| `VS_ID_REGENERATION` (26) | **Dead.** Flat zero across a full drive with braking. |
+| `VS_ID_ECO_MODE` (28) | **Dead.** Never delivers an event at all. |
+| Battery state of charge | **Does not exist on this bus.** Not under any name. |
 
-**Not available** (not on this unit's CAN): boost/MAP, AFR/lambda, knock, ignition timing — those
-are ECU-tuning parameters only tools like EcuTek read. This is instrument-cluster-grade data.
+`maximumRange` is not trustworthy — types 12, 13, 16 and 32 all report the same placeholder — so
+every scale in the app was derived from observed values, and anything still uncalibrated is drawn
+in amber rather than pretending to be an engineering unit.
 
-## Build
+## The screen
 
-Requirements: a JDK, the Android SDK command-line tools (`build-tools;34.0.0` + `platforms;android-34`),
-and Python 3 with `cryptography` (`pip install cryptography`, used by the `.epk` step). Point the build
-at your toolchain via the `JAVA_HOME` and `ANDROID_SDK` env vars (or edit the two lines atop `build.sh`).
+Motor torque on the left as a bipolar column (regeneration up in green, drive down in amber, with
+this trip's peak marked on each side), coolant on the right, gear and steering across the top, the
+car in the middle with a tyre-pressure callout at each corner, a status panel that names the worst
+active condition, a friction circle for lateral and longitudinal g, and road speed.
+
+A tyre reading zero means its sensor has not been heard from yet, not that the tyre is flat, and
+the screen says so.
+
+Long-press anywhere to reach settings (language: 中文 / English).
+
+---
+
+## Building
+
+Needs JDK 17+, the Android SDK (`build-tools;34.0.0`, `platforms;android-34`), and Python 3 with
+`cryptography`. On Windows use Git Bash or WSL.
 
 ```
-git clone https://github.com/bugjosh/appgarage-dash && cd appgarage-dash
-bash build.sh          # -> build/dash.apk  +  build/dash.epk  (loadable via App Garage)
+export ANDROID_SDK=/path/to/android-sdk
+bash build.sh                 # -> build/dash.apk and build/dash.epk
 ```
-The APK is `minSdkVersion 10`, pure-Dalvik (no `lib/`), self-signed with a persistent `keystore.ks`.
 
-## Loading onto the head unit
+`build.sh` stamps the version code with the current unix time, because App Garage hides any
+candidate whose version code is not higher than what is already installed.
 
-The head unit's **App Garage** installs USB apps only as `.epk` packages. `build.sh` produces
-`build/dash.epk` for you, using the **public** OBU certificate in [`keys/obu_cert.pem`](keys/README.md)
-(only the public half is shipped — the private key and firmware are not).
+### Seeing the screen without a car
 
-**On a computer**
-1. Format a USB stick as **FAT32**.
-2. Copy **`build/dash.epk`** to the **root** of the stick (App Garage scans the stick for `.epk` files).
+```
+bash tools/preview.sh          # normal running state
+bash tools/preview.sh warn     # hot coolant, soft tyre, hard braking
+bash tools/preview.sh ev       # engine off, still warming
+bash tools/preview.sh lock     # full lock at walking pace
+bash tools/preview.sh normal en
+```
 
-**In the car** (engine running, so the gauges show live data)
+`tools/Preview.java` is a desktop port of the screen's geometry that renders it to PNG at the real
+800×480. It exists because the head unit is the slowest imaginable place to discover that two
+labels overlap. It models **layout only** — not Android `Paint` state — which is worth knowing: a
+stale paint alpha once drew the entire car at four percent opacity while every preview looked
+perfect.
 
-3. Insert the stick into the head unit's USB port. If it prompts *"USB music device detected… create or
-   replace voice recognition data?"*, choose **No**.
-4. Give the unit a moment after start-up — it can take **up to a minute** to finish loading, showing
-   **"Loading all apps"** (or similar) along the bottom of the main screen. Wait until that clears.
-5. From the main screen, press the **right arrow once** — the **App Garage** icon is there. Open it.
-6. Choose **Install Apps via USB**. It lists the apps found on the stick — select **AppGarage Dash**
-   (or **Install All Apps**), then confirm **Install this app?** → **Install**.
-7. Wait for **Installation from USB complete** / **Apps installed** — don't pull the USB mid-install
-   (*"Please do not remove the USB during installation"*).
-8. Launch **AppGarage Dash** from App Garage (or its home-screen shortcut). The gauges go live.
+### Replacing the artwork or the font
 
-**Updating:** App Garage hides an install candidate whose `versionCode` is ≤ the one already
-installed, so each `build.sh` run stamps a higher `versionCode` (unix time). A new `dash.epk` will
-then appear and install over the old app **provided it's signed with the same key** (`keystore.ks`).
-If it doesn't show in the list, or you rebuilt with a different key — a fresh clone makes its own,
-and the released `.epk` differs from a self-built one — **uninstall the existing "AppGarage Dash"
-first**, then install.
+Drop a drawing at `assets/car.png` and a TrueType file at `assets/dash.ttf`; neither needs a code
+change. See [`assets/README.md`](assets/README.md) — including `tools/MakeCarAsset.java`, which
+converts an ordinary light-on-black drawing into the keyed, tinted PNG the screen wants.
 
-> The exact menu wording above is taken from the App Garage firmware; your unit's labels should match
-> or be close. The bundled cert works on units running the matching InTouch firmware; units with
-> different firmware supply their own (see [`keys/README.md`](keys/README.md)). Only load software onto
-> **a vehicle you own.**
+### Installing
 
-## Credits
+1. Format a USB stick as **FAT32** and put `dash.epk` in its **root**.
+2. Insert it, wait for "Loading all apps" to finish (up to a minute from cold).
+3. From the home screen press **right** once to reach **App Garage**.
+4. **Install Apps via USB** → **O.R.I.O.N.** → confirm. Do not pull the stick until it completes.
 
-This wouldn't exist without the groundwork of others:
+Self-built and released `.epk` files are signed differently and cannot replace each other — pick
+one and stay with it, or uninstall first. `keystore.ks` is generated on first build and is
+deliberately not committed, so keep yours if you want your own rebuilds to install over each other.
 
-- **Firmware image:** the Q50/Q60 system image that made the platform legible was dumped and shared
-  by **@tdpequinox** (on the **DCUFix** Discord) — thank you.
-- **App Garage load format:** the on-device package format and how apps are signed/accepted was
-  worked out from that firmware.
+---
 
-## Disclaimer
+## Credits and sources
 
-For use on **your own vehicle**, at your own risk. Don't let an on-screen display distract you from
-driving. Not affiliated with Infiniti, Nissan, Ygomi, or Airbiquity; ships no proprietary keys,
-firmware, or copyrighted assets.
+- **AppGarage Dash** — the project this began as, MIT licensed. The `.epk` container format, the
+  `com.ygomi.permission.IVI_CAN_READ` permission, the `ivi.*` manifest metadata and the App Garage
+  loading route all come from there.
+- **[@tdpequinox](https://github.com/tdpequinox)** — shared the Q50/Q60 InTouch system images that
+  the original reverse engineering was done against. None of this exists without that.
+- The signal reference the original carried was calibrated on a **2018 Q60 Red Sport 400
+  (VR30DDTT)**. The type numbers carry over to the VQ35HR hybrid; the meanings and scalings
+  frequently do not, which is what `docs/sensors-vq35hr.md` records.
+- **[Chakra Petch](https://fonts.google.com/specimen/Chakra+Petch)** by Cadson Demak — the display
+  face, SIL Open Font License 1.1, full text at
+  [`assets/dash.ttf.LICENSE.txt`](assets/dash.ttf.LICENSE.txt).
+- `keys/obu_cert.pem` is the **public half** of a fleet certificate that ships inside InTouch
+  firmware. No private key, no firmware and no password is distributed — see
+  [`keys/README.md`](keys/README.md).
+- `assets/car.png` was supplied by this repository's owner. **If you fork or redistribute this,
+  check that you have the right to the artwork** — replace it with your own drawing if in doubt.
+  Everything else here is either original or credited above.
 
-## License
-
-MIT — see [LICENSE](LICENSE).
+Not affiliated with Infiniti, Nissan, Ygomi or Airbiquity. "O.R.I.O.N." is just a name. Code is
+MIT licensed (see [`LICENSE`](LICENSE)); the bundled font and artwork carry their own terms as
+noted above.

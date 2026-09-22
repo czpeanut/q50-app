@@ -21,3 +21,19 @@ won't run, but `build` does. No firmware or p12 password is distributed.
 If your head unit runs different firmware, replace `keys/obu_cert.pem` with the cert from your own
 unit (see [`keys/README.md`](../keys/README.md)). This tooling is for loading software onto
 **a vehicle you own**.
+
+---
+
+# The other tools here
+
+| Tool | What it does |
+|---|---|
+| `preview.sh` / `Preview.java` | Renders the driving screen to PNG at the real 800×480, so layout can be judged without a car. A desktop port of `DashView`'s geometry — keep the two in step by hand. It models **layout only**, not Android `Paint` state. |
+| `MakeCarAsset.java` | Turns an ordinary light-on-black line drawing into `assets/car.png`: brightness becomes opacity, JPEG haze is floored out, strokes are tinted, and the result is cropped and scaled. |
+| `MakeIcon.java` | Generates the launcher icon, so the mark stays tied to the screen's own cyan, glow and chamfer. |
+
+```
+javac -d build/tools tools/MakeCarAsset.java && java -cp build/tools MakeCarAsset drawing.jpg assets/car.png
+javac -d build/tools tools/MakeIcon.java     && java -cp build/tools MakeIcon 96 res/drawable-nodpi/ic_launcher.png
+bash tools/preview.sh
+```
