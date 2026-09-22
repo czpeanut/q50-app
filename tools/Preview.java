@@ -38,7 +38,7 @@ public class Preview {
     static float rpmX,rpmY0,rpmY1,barW,cooX,carCx,carCy,carW,carH,gCx,gCy,gR;
     static Rectangle2D.Float statusBox;
     static Rectangle2D.Float[] tyreBox=new Rectangle2D.Float[4];
-    static Rectangle2D.Float gearBox;
+    static Rectangle2D.Float gearBox, torquePlate, coolantPlate;
     static float[] tdx=new float[4],tdy=new float[4];
     static int[] tyreType={TP_FL,TP_FR,TP_RL,TP_RR};
     static float pedalL,pedalR,pedalY0,pedalY1;
@@ -87,7 +87,9 @@ public class Preview {
     static void layout(){
         barW=W*0.0625f; rpmX=W*0.0225f; cooX=W-rpmX-barW; rpmY0=H*0.225f; rpmY1=H*0.929f;
         gearBox=new Rectangle2D.Float(W*0.1875f,H*0.0583f,W*0.10f,H*0.125f);
-        statusBox=new Rectangle2D.Float(W*0.7125f,H*0.0583f,W*0.1725f,H*0.125f);
+        torquePlate =new Rectangle2D.Float(W*0.015f,H*0.030f,W*0.160f,H*0.178f);
+        coolantPlate=new Rectangle2D.Float(W*0.825f,H*0.030f,W*0.160f,H*0.178f);
+        statusBox=new Rectangle2D.Float(W*0.65f,H*0.0583f,W*0.165f,H*0.125f);
         carW=W*0.255f; carH=H*0.46f; carCx=W*0.5f; carCy=H*0.555f;
         float bw=W*0.1875f,bh=H*0.125f,leftX=W*0.11f,rightX=W*0.7025f,topY=H*0.335f,botY=H*0.585f;
         tyreBox[0]=new Rectangle2D.Float(leftX,topY,bw,bh);
@@ -164,6 +166,28 @@ public class Preview {
             else G.draw(new Line2D.Float(edgeX+3,y,edgeX+3+len,y));
         }
     }
+    static GeneralPath platePath(Rectangle2D.Float b,boolean chL,float ch,float bottom){
+        GeneralPath q=new GeneralPath();
+        float l=(float)b.getMinX(), t=(float)b.getMinY(), r=(float)b.getMaxX();
+        if(chL){ q.moveTo(l+ch,t); q.lineTo(r,t); q.lineTo(r,bottom); q.lineTo(l,bottom); q.lineTo(l,t+ch); }
+        else   { q.moveTo(l,t); q.lineTo(r-ch,t); q.lineTo(r,t+ch); q.lineTo(r,bottom); q.lineTo(l,bottom); }
+        q.closePath(); return q;
+    }
+    static void plate(Rectangle2D.Float b,boolean chL,Color accent,String lab){
+        float ch=(float)Math.min(b.getHeight()*0.22,b.getWidth()*0.16);
+        float head=(float)b.getHeight()*0.30f;
+        float t=(float)b.getMinY(), l=(float)b.getMinX(), r=(float)b.getMaxX();
+        GeneralPath body=platePath(b,chL,ch,(float)b.getMaxY());
+        G.setColor(c(0xF2070C14)); G.fill(body);
+        G.setColor(al(accent,0x2A)); G.fill(platePath(b,chL,ch,t+head));
+        G.setColor(al(accent,0x99)); G.setStroke(new BasicStroke(1.6f));
+        G.draw(new Line2D.Float(l,t+head,r,t+head));
+        G.setColor(al(accent,0x33)); G.setStroke(new BasicStroke(6f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(body);
+        G.setColor(accent); G.setStroke(new BasicStroke(1.8f,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(body);
+        G.setColor(accent);
+        font(fitSize(lab,(float)b.getWidth()-W*0.016f,H*0.050f),false);
+        text(lab,(float)b.getCenterX(),t+head*0.76f,1);
+    }
     static void label(String s,float cx,float base){ G.setColor(GREY); font(H*0.042f,false); text(s,cx,base,1); }
     static String fmt(float val,int dec){ return dec==0?String.valueOf(Math.round(val)):String.format("%."+dec+"f",val); }
     static void glow(Shape s,Color col,float w){
@@ -233,11 +257,10 @@ public class Preview {
         backdrop(); arcs(); pool(); drawCar();
         columnScale(rpmX+barW,false,6); columnScale(cooX,true,4);
         frame(rpmX,rpmY0,rpmX+barW,rpmY1); frame(cooX,rpmY0,cooX+barW,rpmY1);
-        G.setColor(WHITE); font(H*0.071f,false);
-        text(cjk?"扭力":"TORQUE",rpmX,H*0.0833f,0);
-        text(cjk?"水溫":"COOLANT",cooX+barW,H*0.0833f,2);
+        plate(torquePlate,true,AMBER,cjk?"扭力":"TORQUE");
+        plate(coolantPlate,false,CYAN,cjk?"水溫":"COOLANT");
         frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),H*0.0458f);
-        label(cjk?"轉向角":"STEERING",W*0.63f,H*0.0458f);
+        label(cjk?"轉向角":"STEERING",W*0.585f,H*0.0458f);
         frame(statusBox); label(cjk?"狀態":"STATUS",(float)statusBox.getCenterX(),H*0.0458f);
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; boolean left=(i==0||i==2);
@@ -281,8 +304,8 @@ public class Preview {
             else rectF(x0,top,x1,bot,i>=redFrom?c(0xFF3A1414):i>=amberFrom?c(0xFF3A3014):c(0xFF2A2312));
         }
         if(peak>0.02f){ float y=rpmY1-inner-peak*span; rectF(rpmX-2f,y-1.5f,rpmX+barW+2f,y+1.5f,WHITE); }
-        G.setColor(!torqueValid()?GREY:frac>=LOAD_RED?RED:AMBER); font(H*0.062f,true);
-        num(torqueValid()?fmt(g(TORQUE),0):"--",rpmX,H*0.1667f,0);
+        G.setColor(!torqueValid()?GREY:frac>=LOAD_RED?RED:AMBER); font(H*0.085f,true);
+        num(torqueValid()?fmt(g(TORQUE),0):"--",(float)torquePlate.getCenterX(),H*0.188f,1);
         // coolant
         float ix=barW*0.18f,cx0=cooX+ix,cx1=cooX+barW-ix,cy0=rpmY0+ix,cy1=rpmY1-ix;
         float cf=h(COOLANT)?(g(COOLANT)-COOLANT_MIN)/(COOLANT_MAX-COOLANT_MIN):0f;
@@ -295,10 +318,10 @@ public class Preview {
             G.setColor(col); G.setStroke(new BasicStroke(2.4f));
             GeneralPath w=new GeneralPath(); w.moveTo(cx0,top); w.quadTo((cx0+cx1)*0.5f,top-4,cx1,top); G.draw(w);
         }
-        G.setColor(h(COOLANT)?(hot?RED:cold?AMBER:WHITE):GREY); font(H*0.062f,true);
-        num(h(COOLANT)?fmt(g(COOLANT),0):"--",cooX+barW,H*0.1667f,2);
-        if(cold){ G.setColor(al(AMBER,(int)(0x80+0x7F*pulse))); font(H*0.040f,true);
-                  text(cjk?"暖車中":"WARMING",cooX+barW,H*0.208f,2); }
+        G.setColor(h(COOLANT)?(hot?RED:cold?AMBER:WHITE):GREY); font(H*0.085f,true);
+        num(h(COOLANT)?fmt(g(COOLANT),0):"--",(float)coolantPlate.getCenterX(),H*0.188f,1);
+        if(cold){ G.setColor(al(AMBER,(int)(0x80+0x7F*pulse))); font(H*0.038f,false);
+                  text(cjk?"暖車中":"WARMING",(float)coolantPlate.getCenterX(),H*0.236f,1); }
         // gear
         if(gearFlash) rectF((float)gearBox.getMinX(),(float)gearBox.getMinY(),(float)gearBox.getMaxX(),(float)gearBox.getMaxY(),c(0x333FD2FF));
         G.setColor(h(GEAR)?(gearFlash?WHITE:CYAN):GREY); font(H*0.105f,true);
@@ -306,7 +329,7 @@ public class Preview {
         // steering
         float deg=g(STEER);
         G.setColor(h(STEER)?WHITE:GREY); font(H*0.082f,true);
-        num(h(STEER)?fmt(deg,0):"--",W*0.63f,H*0.1625f,1);
+        num(h(STEER)?fmt(deg,0):"--",W*0.585f,H*0.1625f,1);
         // tyres
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; int t=tyreType[i];
