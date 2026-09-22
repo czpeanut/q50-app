@@ -86,8 +86,8 @@ public class Preview {
 
     static void layout(){
         barW=W*0.0625f; rpmX=W*0.0225f; cooX=W-rpmX-barW; rpmY0=H*0.225f; rpmY1=H*0.929f;
-        gearBox=new Rectangle2D.Float(W*0.1875f,H*0.0583f,W*0.10f,H*0.125f);
-        statusBox=new Rectangle2D.Float(W*0.615f,H*0.0583f,W*0.160f,H*0.125f);
+        gearBox=new Rectangle2D.Float(W*0.185f,H*0.0583f,W*0.10f,H*0.125f);
+        statusBox=new Rectangle2D.Float(W*0.60f,H*0.0583f,W*0.20f,H*0.125f);
         carW=W*0.255f; carH=H*0.46f; carCx=W*0.5f; carCy=H*0.555f;
         float bw=W*0.1875f,bh=H*0.125f,leftX=W*0.11f,rightX=W*0.7025f,topY=H*0.335f,botY=H*0.585f;
         tyreBox[0]=new Rectangle2D.Float(leftX,topY,bw,bh);
@@ -240,7 +240,7 @@ public class Preview {
         font(fitSize(coolant,(cooX+barW)-(float)statusBox.getMaxX()-W*0.014f,H*0.068f),false);
         text(coolant,cooX+barW,H*0.0833f,2);
         frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),(float)gearBox.getWidth(),H*0.0458f);
-        label(cjk?"轉向角":"STEERING",W*0.555f,W*0.15f,H*0.0458f);
+        label(cjk?"轉向角":"STEERING",W*0.35f,W*0.15f,H*0.0458f);
         frame(statusBox); label(cjk?"狀態":"STATUS",(float)statusBox.getCenterX(),(float)statusBox.getWidth(),H*0.0458f);
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; boolean left=(i==0||i==2);
@@ -317,7 +317,7 @@ public class Preview {
         // steering
         float deg=g(STEER);
         G.setColor(h(STEER)?WHITE:GREY); font(H*0.070f,true);
-        num(h(STEER)?fmt(deg,0):"--",W*0.555f,H*0.155f,1);
+        num(h(STEER)?fmt(deg,0):"--",W*0.35f,H*0.155f,1);
         // tyres
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; int t=tyreType[i];

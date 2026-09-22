@@ -199,7 +199,7 @@ public class DashView extends View {
 
         // The EV badge is gone. It inferred electric drive from zero rpm at road speed, and
         // type 13 never once left zero across a whole trip, so there was nothing behind it.
-        gearBox.set(W * 0.1875f, H * 0.0583f, W * 0.2875f, H * 0.1833f);
+        gearBox.set(W * 0.185f, H * 0.0583f, W * 0.285f, H * 0.1833f);
 
         // The steering readout sits beside its own dial rather than above the car, which
         // keeps the whole centre column free for the heading arrow to rise into. The two
@@ -207,11 +207,15 @@ public class DashView extends View {
         // The steering dial is gone. It duplicated the heading arrow, which already shows
         // the wheel, and the corner is worth more as somewhere for the car to say what is
         // wrong. The steering figure stays; only the dial went.
+        // Steering moved into the gap left of the arrow, which was simply empty. That frees
+        // the right side for a wider status panel, and puts the figure where the arrow it
+        // describes can be seen in the same glance.
+        //
         // The right-hand header carries three things and the English words are far longer
         // than the Chinese ones -- COOLANT against 水溫 is seven characters against two. Each
         // label is now fitted to a budget rather than trusted to be short enough, so neither
         // language can push one into its neighbour.
-        statusBox.set(W * 0.615f, H * 0.0583f, W * 0.775f, H * 0.1833f);
+        statusBox.set(W * 0.60f, H * 0.0583f, W * 0.80f, H * 0.1833f);
 
         // the supplied drawing is taller than it is wide, so height is what limits it
         carW = W * 0.255f;
@@ -510,7 +514,7 @@ public class DashView extends View {
         int n = h(STEER) ? fmt(deg, 0) : dashes();
         // sized and lifted so that full lock -- where the heading arrow swings widest --
         // still clears it, and so that four characters clear the status panel
-        drawNum(c, n, W * 0.555f, H * 0.155f, 1, H * 0.070f, h(STEER) ? WHITE : GREY);
+        drawNum(c, n, W * 0.35f, H * 0.155f, 1, H * 0.070f, h(STEER) ? WHITE : GREY);
     }
 
     /**
@@ -768,7 +772,7 @@ public class DashView extends View {
 
         panel(c, gearBox.left, gearBox.top, gearBox.right, gearBox.bottom);
         label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), gearBox.width(), H * 0.0458f);
-        label(c, cjk ? "轉向角" : "STEERING", W * 0.555f, W * 0.15f, H * 0.0458f);
+        label(c, cjk ? "轉向角" : "STEERING", W * 0.35f, W * 0.15f, H * 0.0458f);
 
         panel(c, statusBox.left, statusBox.top, statusBox.right, statusBox.bottom);
         label(c, cjk ? "狀態" : "STATUS", statusBox.centerX(), statusBox.width(), H * 0.0458f);
