@@ -87,7 +87,7 @@ public class Preview {
     static void layout(){
         barW=W*0.0625f; rpmX=W*0.0225f; cooX=W-rpmX-barW; rpmY0=H*0.225f; rpmY1=H*0.929f;
         gearBox=new Rectangle2D.Float(W*0.1875f,H*0.0583f,W*0.10f,H*0.125f);
-        statusBox=new Rectangle2D.Float(W*0.7125f,H*0.0583f,W*0.1725f,H*0.125f);
+        statusBox=new Rectangle2D.Float(W*0.615f,H*0.0583f,W*0.160f,H*0.125f);
         carW=W*0.255f; carH=H*0.46f; carCx=W*0.5f; carCy=H*0.555f;
         float bw=W*0.1875f,bh=H*0.125f,leftX=W*0.11f,rightX=W*0.7025f,topY=H*0.335f,botY=H*0.585f;
         tyreBox[0]=new Rectangle2D.Float(leftX,topY,bw,bh);
@@ -164,7 +164,7 @@ public class Preview {
             else G.draw(new Line2D.Float(edgeX+3,y,edgeX+3+len,y));
         }
     }
-    static void label(String s,float cx,float base){ G.setColor(GREY); font(H*0.042f,false); text(s,cx,base,1); }
+    static void label(String s,float cx,float budget,float base){ G.setColor(GREY); font(fitSize(s,budget-W*0.010f,H*0.042f),false); text(s,cx,base,1); }
     static String fmt(float val,int dec){ return dec==0?String.valueOf(Math.round(val)):String.format("%."+dec+"f",val); }
     static void glow(Shape s,Color col,float w){
         int[] a={0x14,0x24,0x48,0xFF}; float[] m={1.9f,1.15f,0.62f,0.26f};
@@ -232,12 +232,16 @@ public class Preview {
         backdrop(); arcs(); pool(); drawCar();
         columnScale(rpmX+barW,false,6); columnScale(cooX,true,4);
         frame(rpmX,rpmY0,rpmX+barW,rpmY1); frame(cooX,rpmY0,cooX+barW,rpmY1);
-        G.setColor(WHITE); font(H*0.058f,false);
-        text(cjk?"馬達扭力":"MOTOR",rpmX,H*0.0833f,0);
-        text(cjk?"水溫":"COOLANT",cooX+barW,H*0.0833f,2);
-        frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),H*0.0458f);
-        label(cjk?"轉向角":"STEERING",W*0.63f,H*0.0458f);
-        frame(statusBox); label(cjk?"狀態":"STATUS",(float)statusBox.getCenterX(),H*0.0458f);
+        G.setColor(WHITE);
+        String motor=cjk?"馬達扭力":"MOTOR";
+        font(fitSize(motor,(float)gearBox.getMinX()-rpmX-W*0.014f,H*0.058f),false);
+        text(motor,rpmX,H*0.0833f,0);
+        String coolant=cjk?"水溫":"COOLANT";
+        font(fitSize(coolant,(cooX+barW)-(float)statusBox.getMaxX()-W*0.014f,H*0.068f),false);
+        text(coolant,cooX+barW,H*0.0833f,2);
+        frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),(float)gearBox.getWidth(),H*0.0458f);
+        label(cjk?"轉向角":"STEERING",W*0.555f,W*0.15f,H*0.0458f);
+        frame(statusBox); label(cjk?"狀態":"STATUS",(float)statusBox.getCenterX(),(float)statusBox.getWidth(),H*0.0458f);
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; boolean left=(i==0||i==2);
             float ax=left?(float)b.getMaxX():(float)b.getMinX(), ay=(float)b.getCenterY();
@@ -250,16 +254,19 @@ public class Preview {
             G.setColor(c(0x553FD2FF)); G.fill(new Ellipse2D.Float(tdx[i]-6.5f,tdy[i]-6.5f,13f,13f));
             G.setColor(CYAN); G.fill(new Ellipse2D.Float(tdx[i]-3f,tdy[i]-3f,6f,6f));
             frame(b);
-            G.setColor(GREY); font(H*0.038f,false);
+            G.setColor(GREY);
+            font(fitSize(tyreLabel(i),(float)b.getWidth()-W*0.050f,H*0.038f),false);
             text(tyreLabel(i),(float)b.getMinX()+W*0.012f,(float)b.getMinY()+H*0.038f,0);
         }
         frame(pedalL,pedalY0,pedalR,pedalY1);
         G.setColor(CYAN_DIM); G.setStroke(new BasicStroke(1.4f));
         float m=(pedalL+pedalR)*0.5f; G.draw(new Line2D.Float(m,pedalY0,m,pedalY1));
-        G.setColor(GREY); font(H*0.044f,false);
-        text(cjk?"剎車":"BRAKE",pedalL,pedalY0-H*0.018f,0);
-        text(cjk?"加速":"THROTTLE",pedalR,pedalY0-H*0.018f,2);
-        label(cjk?"車速 km/h":"SPEED km/h",W*0.80f,H*0.815f);
+        G.setColor(GREY);
+        float halfBar=(pedalR-pedalL)*0.46f;
+        String brk=cjk?"剎車":"BRAKE", thr=cjk?"加速":"THROTTLE";
+        font(fitSize(brk,halfBar,H*0.044f),false); text(brk,pedalL,pedalY0-H*0.018f,0);
+        font(fitSize(thr,halfBar,H*0.044f),false); text(thr,pedalR,pedalY0-H*0.018f,2);
+        label(cjk?"車速 km/h":"SPEED km/h",W*0.80f,W*0.20f,H*0.815f);
     }
 
     static void segment(float l,float t,float r,float b,boolean lit,Color col){
@@ -282,8 +289,10 @@ public class Preview {
         boolean regen=h(TORQUE)&&g(TORQUE)>TORQUE_DEAD, drive=h(TORQUE)&&g(TORQUE)<-TORQUE_DEAD;
         G.setColor(!h(TORQUE)?GREY:regen?GREEN:drive?AMBER:WHITE); font(H*0.062f,true);
         num(h(TORQUE)?fmt(g(TORQUE),0):"--",rpmX,H*0.1667f,0);
-        if(regen||drive){ G.setColor(regen?GREEN:AMBER); font(H*0.038f,false);
-            text(regen?(cjk?"回充":"REGEN"):(cjk?"輸出":"DRIVE"),rpmX,H*0.208f,0); }
+        if(regen||drive){ String dir=regen?(cjk?"回充":"REGEN"):(cjk?"輸出":"DRIVE");
+            G.setColor(regen?GREEN:AMBER);
+            font(fitSize(dir,(float)gearBox.getMinX()-rpmX-W*0.014f,H*0.038f),false);
+            text(dir,rpmX,H*0.208f,0); }
         // coolant
         float ix=barW*0.18f,cx0=cooX+ix,cx1=cooX+barW-ix,cy0=rpmY0+ix,cy1=rpmY1-ix;
         float cf=h(COOLANT)?(g(COOLANT)-COOLANT_MIN)/(COOLANT_MAX-COOLANT_MIN):0f;
@@ -298,16 +307,17 @@ public class Preview {
         }
         G.setColor(h(COOLANT)?(hot?RED:cold?AMBER:WHITE):GREY); font(H*0.062f,true);
         num(h(COOLANT)?fmt(g(COOLANT),0):"--",cooX+barW,H*0.1667f,2);
-        if(cold){ G.setColor(al(AMBER,(int)(0x80+0x7F*pulse))); font(H*0.040f,true);
-                  text(cjk?"暖車中":"WARMING",cooX+barW,H*0.208f,2); }
+        if(cold){ String warm=cjk?"暖車中":"WARMING";
+                  G.setColor(al(AMBER,(int)(0x80+0x7F*pulse)));
+                  font(fitSize(warm,W*0.17f,H*0.040f),false); text(warm,cooX+barW,H*0.208f,2); }
         // gear
         if(gearFlash) rectF((float)gearBox.getMinX(),(float)gearBox.getMinY(),(float)gearBox.getMaxX(),(float)gearBox.getMaxY(),c(0x333FD2FF));
         G.setColor(h(GEAR)?(gearFlash?WHITE:CYAN):GREY); font(H*0.105f,true);
         num(gearText(),(float)gearBox.getCenterX(),H*0.1583f,1);
         // steering
         float deg=g(STEER);
-        G.setColor(h(STEER)?WHITE:GREY); font(H*0.082f,true);
-        num(h(STEER)?fmt(deg,0):"--",W*0.63f,H*0.1625f,1);
+        G.setColor(h(STEER)?WHITE:GREY); font(H*0.070f,true);
+        num(h(STEER)?fmt(deg,0):"--",W*0.555f,H*0.155f,1);
         // tyres
         for(int i=0;i<4;i++){
             Rectangle2D.Float b=tyreBox[i]; int t=tyreType[i];
@@ -317,7 +327,8 @@ public class Preview {
             Color cc=(!ok||acq)?GREY:bad?AMBER:WHITE;
             if(bad) rectF((float)b.getMinX(),(float)b.getMinY(),(float)b.getMaxX(),(float)b.getMaxY(),al(AMBER,(int)(0x14+0x1C*pulse)));
             float nx=(float)b.getMinX()+W*0.012f, ny=(float)b.getMaxY()-H*0.018f;
-            if(acq){ G.setColor(GREY); font(H*0.050f,false); text(cjk?"偵測中":"ACQUIRING",nx,ny,0); }
+            if(acq){ String wait=cjk?"偵測中":"ACQUIRING"; G.setColor(GREY);
+                     font(fitSize(wait,(float)b.getWidth()-W*0.030f,H*0.050f),false); text(wait,nx,ny,0); }
             else {
                 G.setColor(cc); font(H*0.070f,true);
                 String val=ok?fmt(psi,1):"--";
@@ -405,9 +416,9 @@ public class Preview {
         if(!h(STEER)&&!h(SPEED)) return;
         float t=h(STEER)?clamp1(g(STEER)/STEER_FULL):0f;
         float spd=h(SPEED)?Math.max(0,Math.min(1,g(SPEED)/120f)):0f;
-        float baseX=carCx, baseY=carCy-carH*0.56f;
+        float baseX=carCx, baseY=carCy-carH*0.52f;
         float len=carH*(0.17f+0.14f*spd);
-        float tipX=baseX+t*carW*0.50f, tipY=baseY-len;
+        float tipX=baseX+t*carW*0.44f, tipY=baseY-len;
         float ctrlX=baseX+t*carW*0.16f, ctrlY=baseY-len*0.55f;
         int alpha=(int)(0x66+0x99*spd);
         GeneralPath sh=new GeneralPath();
@@ -460,6 +471,13 @@ public class Preview {
             set(TORQUE,-380f); set(RPM,0f); set(COOLANT,52f); set(SPEED,31f); set(GEAR,4f);
             set(ACCEL,12f); set(BRAKE,0f); set(STEER,-4f);
             set(G_LAT,0.05f); set(G_LONG,-0.03f); seedTrail(0.05f,-0.03f,false);
+            set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,38.2f);
+        } else if(mode.equals("lock")){
+            // worst case for the header: full lock at a crawl, when the arrow swings widest
+            pulse=1f; peakRegen=0.40f; peakDrive=0.95f; maxG=0.22f;
+            set(TORQUE,-1690f); set(RPM,0f); set(COOLANT,88f); set(SPEED,4f); set(GEAR,2f);
+            set(ACCEL,26f); set(BRAKE,0f); set(STEER,390f);   // right lock: the panel is on this side
+            set(G_LAT,0.10f); set(G_LONG,0.04f); seedTrail(0.10f,0.04f,false);
             set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,38.2f);
         } else if(mode.equals("acq")){
             pulse=1f; peakRegen=0.55f; peakDrive=0.30f; maxG=0.31f; gearFlash=false;

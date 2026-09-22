@@ -207,7 +207,11 @@ public class DashView extends View {
         // The steering dial is gone. It duplicated the heading arrow, which already shows
         // the wheel, and the corner is worth more as somewhere for the car to say what is
         // wrong. The steering figure stays; only the dial went.
-        statusBox.set(W * 0.7125f, H * 0.0583f, W * 0.885f, H * 0.1833f);   // clear of 水溫
+        // The right-hand header carries three things and the English words are far longer
+        // than the Chinese ones -- COOLANT against 水溫 is seven characters against two. Each
+        // label is now fitted to a budget rather than trusted to be short enough, so neither
+        // language can push one into its neighbour.
+        statusBox.set(W * 0.615f, H * 0.0583f, W * 0.775f, H * 0.1833f);
 
         // the supplied drawing is taller than it is wide, so height is what limits it
         carW = W * 0.255f;
@@ -281,9 +285,10 @@ public class DashView extends View {
         float spd = h(SPEED) ? d[SPEED] / 120f : 0f;
         if (spd < 0f) spd = 0f; else if (spd > 1f) spd = 1f;
 
-        float baseX = carCx, baseY = carCy - carH * 0.56f;
+        float baseX = carCx, baseY = carCy - carH * 0.52f;   // low enough that the
+                                                             // head clears the status panel
         float len = carH * (0.17f + 0.14f * spd);      // short at a standstill, long at speed
-        float tipX = baseX + t * carW * 0.50f;
+        float tipX = baseX + t * carW * 0.44f;      // stays clear of the status panel at lock
         float tipY = baseY - len;
         float ctrlX = baseX + t * carW * 0.16f;
         float ctrlY = baseY - len * 0.55f;
@@ -413,10 +418,10 @@ public class DashView extends View {
 
         if (regen || drive) {
             pText.setColor(regen ? GREEN : AMBER);
-            pText.setTextSize(H * 0.038f);
+            String dir = regen ? (cjk ? "回充" : "REGEN") : (cjk ? "輸出" : "DRIVE");
             pText.setTextAlign(Paint.Align.LEFT);
-            c.drawText(regen ? (cjk ? "回充" : "REGEN") : (cjk ? "輸出" : "DRIVE"),
-                    rpmX, H * 0.208f, pText);
+            pText.setTextSize(fitSize(dir, gearBox.left - rpmX - W * 0.014f, H * 0.038f));
+            c.drawText(dir, rpmX, H * 0.208f, pText);
         }
     }
 
@@ -469,8 +474,10 @@ public class DashView extends View {
         // VQ35 does not want revs until it is warm, so say so plainly
         if (cold) {
             pText.setColor((AMBER & 0x00FFFFFF) | ((int) (0x80 + 0x7F * pulse) << 24));
-            pText.setTextSize(H * 0.040f);
-            c.drawText(cjk ? "暖車中" : "WARMING", cooX + barW, H * 0.208f, pText);
+            String warm = cjk ? "暖車中" : "WARMING";
+            pText.setTextAlign(Paint.Align.RIGHT);
+            pText.setTextSize(fitSize(warm, W * 0.17f, H * 0.040f));
+            c.drawText(warm, cooX + barW, H * 0.208f, pText);
         }
     }
 
@@ -501,7 +508,9 @@ public class DashView extends View {
     private void drawSteering(Canvas c) {
         float deg = g(STEER);                       // degrees directly, right positive
         int n = h(STEER) ? fmt(deg, 0) : dashes();
-        drawNum(c, n, W * 0.63f, H * 0.1625f, 1, H * 0.082f, h(STEER) ? WHITE : GREY);
+        // sized and lifted so that full lock -- where the heading arrow swings widest --
+        // still clears it, and so that four characters clear the status panel
+        drawNum(c, n, W * 0.555f, H * 0.155f, 1, H * 0.070f, h(STEER) ? WHITE : GREY);
     }
 
     /**
@@ -618,10 +627,11 @@ public class DashView extends View {
             }
             float nx = b.left + W * 0.012f, ny = b.bottom - H * 0.018f;
             if (acquiring) {
-                pText.setTextSize(H * 0.050f);
+                String wait = cjk ? "偵測中" : "ACQUIRING";
                 pText.setTextAlign(Paint.Align.LEFT);
                 pText.setColor(GREY);
-                c.drawText(cjk ? "偵測中" : "ACQUIRING", nx, ny, pText);
+                pText.setTextSize(fitSize(wait, b.width() - W * 0.030f, H * 0.050f));
+                c.drawText(wait, nx, ny, pText);
             } else {
                 int n = ok ? fmt(psi, 1) : dashes();
                 float nw = numWidth(n, H * 0.070f);
@@ -747,17 +757,21 @@ public class DashView extends View {
         pText.setColor(WHITE);
         pText.setTextSize(H * 0.071f);
         pText.setTextAlign(Paint.Align.LEFT);
-        pText.setTextSize(H * 0.058f);               // 4 characters, clear of the gear box
-        c.drawText(cjk ? "馬達扭力" : "MOTOR", rpmX, H * 0.0833f, pText);
+        String motor = cjk ? "馬達扭力" : "MOTOR";
+        pText.setTextSize(fitSize(motor, gearBox.left - rpmX - W * 0.014f, H * 0.058f));
+        c.drawText(motor, rpmX, H * 0.0833f, pText);
+        String coolant = cjk ? "水溫" : "COOLANT";
         pText.setTextAlign(Paint.Align.RIGHT);
-        c.drawText(cjk ? "水溫" : "COOLANT", cooX + barW, H * 0.0833f, pText);
+        pText.setTextSize(fitSize(coolant,
+                (cooX + barW) - statusBox.right - W * 0.014f, H * 0.068f));
+        c.drawText(coolant, cooX + barW, H * 0.0833f, pText);
 
         panel(c, gearBox.left, gearBox.top, gearBox.right, gearBox.bottom);
-        label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), H * 0.0458f);
-        label(c, cjk ? "轉向角" : "STEERING", W * 0.63f, H * 0.0458f);
+        label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), gearBox.width(), H * 0.0458f);
+        label(c, cjk ? "轉向角" : "STEERING", W * 0.555f, W * 0.15f, H * 0.0458f);
 
         panel(c, statusBox.left, statusBox.top, statusBox.right, statusBox.bottom);
-        label(c, cjk ? "狀態" : "STATUS", statusBox.centerX(), H * 0.0458f);
+        label(c, cjk ? "狀態" : "STATUS", statusBox.centerX(), statusBox.width(), H * 0.0458f);
 
         for (int i = 0; i < 4; i++) {
             RectF b = tyreBox[i];
@@ -780,8 +794,8 @@ public class DashView extends View {
             c.drawCircle(tyreDotX[i], tyreDotY[i], 3.0f, p);
             panel(c, b.left, b.top, b.right, b.bottom);
             pText.setColor(GREY);
-            pText.setTextSize(H * 0.038f);
             pText.setTextAlign(Paint.Align.LEFT);
+            pText.setTextSize(fitSize(tyreLabel(i), b.width() - W * 0.050f, H * 0.038f));
             c.drawText(tyreLabel(i), b.left + W * 0.012f, b.top + H * 0.038f, pText);
         }
 
@@ -791,13 +805,16 @@ public class DashView extends View {
         p.setStrokeWidth(1.4f);
         c.drawLine((pedalL + pedalR) * 0.5f, pedalY0, (pedalL + pedalR) * 0.5f, pedalY1, p);
         pText.setColor(GREY);
-        pText.setTextSize(H * 0.044f);
+        float halfBar = (pedalR - pedalL) * 0.46f;
+        String brk = cjk ? "刹車" : "BRAKE", thr = cjk ? "加速" : "THROTTLE";
         pText.setTextAlign(Paint.Align.LEFT);
-        c.drawText(cjk ? "刹車" : "BRAKE", pedalL, pedalY0 - H * 0.018f, pText);
+        pText.setTextSize(fitSize(brk, halfBar, H * 0.044f));
+        c.drawText(brk, pedalL, pedalY0 - H * 0.018f, pText);
         pText.setTextAlign(Paint.Align.RIGHT);
-        c.drawText(cjk ? "加速" : "THROTTLE", pedalR, pedalY0 - H * 0.018f, pText);
+        pText.setTextSize(fitSize(thr, halfBar, H * 0.044f));
+        c.drawText(thr, pedalR, pedalY0 - H * 0.018f, pText);
 
-        label(c, cjk ? "車速 km/h" : "SPEED km/h", W * 0.80f, H * 0.815f);
+        label(c, cjk ? "車速 km/h" : "SPEED km/h", W * 0.80f, W * 0.20f, H * 0.815f);
     }
 
     /**
@@ -1000,10 +1017,10 @@ public class DashView extends View {
         c.drawLine(rr - len, b, rr, b, p); c.drawLine(rr, b, rr, b - len, p);
     }
 
-    private void label(Canvas c, String s, float cx, float baseline) {
+    private void label(Canvas c, String s, float cx, float budget, float baseline) {
         pText.setColor(GREY);
-        pText.setTextSize(H * 0.042f);
         pText.setTextAlign(Paint.Align.CENTER);
+        pText.setTextSize(fitSize(s, budget - W * 0.010f, H * 0.042f));
         c.drawText(s, cx, baseline, pText);
     }
 
