@@ -735,7 +735,7 @@ public class DashView extends View {
     private void drawStatic(Canvas c) {
         backdrop(c);
         arcs(c);
-        starfield(c);
+        circuitry(c);
         pool(c);
         drawCar(c);
 
@@ -932,28 +932,119 @@ public class DashView extends View {
         }
     }
 
-    /** fixed seed so the field never shimmers between rebuilds */
-    private void starfield(Canvas c) {
-        Random rnd = new Random(20260921L);
+    // eight compass directions on 45-degree steps, the angles a PCB trace is allowed to take
+    private static final float[] OCT_DX = { 1f, .7071f, 0f, -.7071f, -1f, -.7071f, 0f, .7071f };
+    private static final float[] OCT_DY = { 0f, .7071f, 1f, .7071f, 0f, -.7071f, -1f, -.7071f };
+
+    /**
+     * Circuit traces across the backdrop, in place of the drifting dots.
+     *
+     * Traces alone read as abstract geometry; what makes it look like a board is the
+     * vocabulary around them -- runs that turn only on 45-degree steps, buses of parallel
+     * lines holding their spacing, vias where a run ends, and the odd pad with legs. All of it
+     * lands in the static layer, so it is drawn once and costs nothing per frame no matter how
+     * much of it there is.
+     *
+     * The seed is fixed. A layout that reshuffled itself on every rebuild would be impossible
+     * to judge against the panels sitting on top of it.
+     */
+    private void circuitry(Canvas c) {
+        Random rnd = new Random(20260922L);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        for (int i = 0; i < 6; i++) bus(c, rnd);
+        for (int i = 0; i < 20; i++) trace(c, rnd);
+        for (int i = 0; i < 11; i++) pad(c, rnd);
+        p.setStrokeCap(Paint.Cap.BUTT);
+        p.setStrokeJoin(Paint.Join.MITER);
+    }
+
+    /** a single run that wanders on 45-degree turns and terminates in a via */
+    private void trace(Canvas c, Random rnd) {
+        float x = rnd.nextFloat() * W, y = rnd.nextFloat() * H;
+        float sx = x, sy = y;
+        int dir = rnd.nextInt(8);
+        path.rewind();
+        path.moveTo(x, y);
+        int segs = 3 + rnd.nextInt(4);
+        for (int i = 0; i < segs; i++) {
+            if (i > 0 && rnd.nextInt(3) != 0) dir = (dir + (rnd.nextBoolean() ? 1 : 7)) & 7;
+            float len = H * (0.035f + rnd.nextFloat() * 0.12f);
+            x += OCT_DX[dir] * len;
+            y += OCT_DY[dir] * len;
+            path.lineTo(x, y);
+        }
+        strokeTrace(c, 2.6f, 1.0f);
+        via(c, x, y);
+        if (rnd.nextInt(3) == 0) via(c, sx, sy);
+    }
+
+    /** parallel runs holding their spacing through a shared 45-degree jog */
+    private void bus(Canvas c, Random rnd) {
+        boolean horiz = rnd.nextBoolean();
+        float bx = rnd.nextFloat() * W, by = rnd.nextFloat() * H;
+        int lines = 3 + rnd.nextInt(2);
+        float gap = 4.6f;
+        float run1 = H * (0.09f + rnd.nextFloat() * 0.16f);
+        float jog = H * (0.05f + rnd.nextFloat() * 0.07f) * (rnd.nextBoolean() ? 1f : -1f);
+        float run2 = H * (0.07f + rnd.nextFloat() * 0.13f);
+        for (int i = 0; i < lines; i++) {
+            float ox = horiz ? 0f : i * gap, oy = horiz ? i * gap : 0f;
+            path.rewind();
+            float x = bx + ox, y = by + oy;
+            path.moveTo(x, y);
+            if (horiz) {
+                x += run1;            path.lineTo(x, y);
+                x += Math.abs(jog);   y += jog;   path.lineTo(x, y);
+                x += run2;            path.lineTo(x, y);
+            } else {
+                y += run1;            path.lineTo(x, y);
+                y += Math.abs(jog);   x += jog;   path.lineTo(x, y);
+                y += run2;            path.lineTo(x, y);
+            }
+            strokeTrace(c, 2.2f, 0.9f);
+        }
+    }
+
+    /** a surface pad with two short legs, the way a component footprint sits on a board */
+    private void pad(Canvas c, Random rnd) {
+        float x = rnd.nextFloat() * W, y = rnd.nextFloat() * H;
+        float w = 7f + rnd.nextFloat() * 9f, hgt = 4.5f + rnd.nextFloat() * 4f;
+        r.set(x - w * 0.5f, y - hgt * 0.5f, x + w * 0.5f, y + hgt * 0.5f);
         p.setStyle(Paint.Style.FILL);
-        for (int i = 0; i < 170; i++) {
-            float x = rnd.nextFloat() * W, y = rnd.nextFloat() * H;
-            p.setColor(0xFF000000 | (0x18242F + rnd.nextInt(0x2C3C4C)));
-            c.drawCircle(x, y, 0.4f + rnd.nextFloat() * 1.0f, p);
-        }
-        for (int i = 0; i < 9; i++) {                 // a few brighter ones, with a glint
-            float x = rnd.nextFloat() * W, y = rnd.nextFloat() * H;
-            p.setColor(0x443FD2FF);
-            c.drawCircle(x, y, 2.4f, p);
-            p.setColor(0xAA8FE4FF);
-            c.drawCircle(x, y, 0.9f, p);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(0.8f);
-            p.setColor(0x333FD2FF);
-            c.drawLine(x - 4f, y, x + 4f, y, p);
-            c.drawLine(x, y - 4f, x, y + 4f, p);
-            p.setStyle(Paint.Style.FILL);
-        }
+        p.setColor(0x143FD2FF);
+        c.drawRoundRect(r, 2f, 2f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(0.9f);
+        p.setColor(0x333FD2FF);
+        c.drawRoundRect(r, 2f, 2f, p);
+        p.setStrokeWidth(1.0f);
+        p.setColor(0x223FD2FF);
+        c.drawLine(r.left - 5f, y, r.left, y, p);
+        c.drawLine(r.right, y, r.right + 5f, y, p);
+    }
+
+    /** every run gets a wide faint pass under a thin brighter one, the same trick as the glow */
+    private void strokeTrace(Canvas c, float wide, float thin) {
+        p.setStyle(Paint.Style.STROKE);
+        p.setColor(0x123FD2FF);
+        p.setStrokeWidth(wide);
+        c.drawPath(path, p);
+        p.setColor(0x2C3FD2FF);
+        p.setStrokeWidth(thin);
+        c.drawPath(path, p);
+    }
+
+    private void via(Canvas c, float x, float y) {
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0x1E3FD2FF);
+        c.drawCircle(x, y, 3.6f, p);
+        p.setColor(0xB004070C);                 // the drilled hole, dark against the wash
+        c.drawCircle(x, y, 1.5f, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(0.9f);
+        p.setColor(0x3C3FD2FF);
+        c.drawCircle(x, y, 3.6f, p);
     }
 
     /** a pool of light so the car sits in something instead of floating on black */

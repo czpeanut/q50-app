@@ -146,20 +146,67 @@ public class Preview {
             G.draw(new Arc2D.Float(carCx-rad,carCy-rad,rad*2,rad*2,-160,140,Arc2D.OPEN));
         }
     }
-    static void starfield(){
-        Random rnd=new Random(20260921L);
-        for(int i=0;i<170;i++){
-            float x=rnd.nextFloat()*W,y=rnd.nextFloat()*H,rad=0.4f+rnd.nextFloat()*1.0f;
-            G.setColor(c(0xFF000000|(0x18242F+rnd.nextInt(0x2C3C4C))));
-            G.fill(new Ellipse2D.Float(x-rad,y-rad,rad*2,rad*2));
+    static final float[] OCT_DX={1f,.7071f,0f,-.7071f,-1f,-.7071f,0f,.7071f};
+    static final float[] OCT_DY={0f,.7071f,1f,.7071f,0f,-.7071f,-1f,-.7071f};
+    static GeneralPath TP=new GeneralPath();
+    static void strokeTrace(float wide,float thin){
+        G.setColor(c(0x123FD2FF)); G.setStroke(new BasicStroke(wide,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(TP);
+        G.setColor(c(0x2C3FD2FF)); G.setStroke(new BasicStroke(thin,BasicStroke.CAP_ROUND,BasicStroke.JOIN_ROUND)); G.draw(TP);
+    }
+    static void via(float x,float y){
+        G.setColor(c(0x1E3FD2FF)); G.fill(new Ellipse2D.Float(x-3.6f,y-3.6f,7.2f,7.2f));
+        G.setColor(c(0xB004070C)); G.fill(new Ellipse2D.Float(x-1.5f,y-1.5f,3f,3f));
+        G.setColor(c(0x3C3FD2FF)); G.setStroke(new BasicStroke(0.9f));
+        G.draw(new Ellipse2D.Float(x-3.6f,y-3.6f,7.2f,7.2f));
+    }
+    static void trace(Random rnd){
+        float x=rnd.nextFloat()*W, y=rnd.nextFloat()*H, sx=x, sy=y;
+        int dir=rnd.nextInt(8);
+        TP=new GeneralPath(); TP.moveTo(x,y);
+        int segs=3+rnd.nextInt(4);
+        for(int i=0;i<segs;i++){
+            if(i>0&&rnd.nextInt(3)!=0) dir=(dir+(rnd.nextBoolean()?1:7))&7;
+            float len=H*(0.035f+rnd.nextFloat()*0.12f);
+            x+=OCT_DX[dir]*len; y+=OCT_DY[dir]*len; TP.lineTo(x,y);
         }
-        for(int i=0;i<9;i++){
-            float x=rnd.nextFloat()*W,y=rnd.nextFloat()*H;
-            G.setColor(c(0x443FD2FF)); G.fill(new Ellipse2D.Float(x-2.4f,y-2.4f,4.8f,4.8f));
-            G.setColor(c(0xAA8FE4FF)); G.fill(new Ellipse2D.Float(x-0.9f,y-0.9f,1.8f,1.8f));
-            G.setColor(c(0x333FD2FF)); G.setStroke(new BasicStroke(0.8f));
-            G.draw(new Line2D.Float(x-4,y,x+4,y)); G.draw(new Line2D.Float(x,y-4,x,y+4));
+        strokeTrace(2.6f,1.0f); via(x,y);
+        if(rnd.nextInt(3)==0) via(sx,sy);
+    }
+    static void bus(Random rnd){
+        boolean horiz=rnd.nextBoolean();
+        float bx=rnd.nextFloat()*W, by=rnd.nextFloat()*H;
+        int lines=3+rnd.nextInt(2); float gap=4.6f;
+        float run1=H*(0.09f+rnd.nextFloat()*0.16f);
+        float jog=H*(0.05f+rnd.nextFloat()*0.07f)*(rnd.nextBoolean()?1f:-1f);
+        float run2=H*(0.07f+rnd.nextFloat()*0.13f);
+        for(int i=0;i<lines;i++){
+            float ox=horiz?0f:i*gap, oy=horiz?i*gap:0f;
+            TP=new GeneralPath();
+            float x=bx+ox, y=by+oy; TP.moveTo(x,y);
+            if(horiz){ x+=run1; TP.lineTo(x,y);
+                       x+=Math.abs(jog); y+=jog; TP.lineTo(x,y);
+                       x+=run2; TP.lineTo(x,y); }
+            else     { y+=run1; TP.lineTo(x,y);
+                       y+=Math.abs(jog); x+=jog; TP.lineTo(x,y);
+                       y+=run2; TP.lineTo(x,y); }
+            strokeTrace(2.2f,0.9f);
         }
+    }
+    static void pad(Random rnd){
+        float x=rnd.nextFloat()*W, y=rnd.nextFloat()*H;
+        float w=7f+rnd.nextFloat()*9f, hgt=4.5f+rnd.nextFloat()*4f;
+        RoundRectangle2D.Float rr=new RoundRectangle2D.Float(x-w/2,y-hgt/2,w,hgt,4f,4f);
+        G.setColor(c(0x143FD2FF)); G.fill(rr);
+        G.setColor(c(0x333FD2FF)); G.setStroke(new BasicStroke(0.9f)); G.draw(rr);
+        G.setColor(c(0x223FD2FF)); G.setStroke(new BasicStroke(1.0f));
+        G.draw(new Line2D.Float(x-w/2-5f,y,x-w/2,y));
+        G.draw(new Line2D.Float(x+w/2,y,x+w/2+5f,y));
+    }
+    static void circuitry(){
+        Random rnd=new Random(20260922L);
+        for(int i=0;i<6;i++) bus(rnd);
+        for(int i=0;i<20;i++) trace(rnd);
+        for(int i=0;i<11;i++) pad(rnd);
     }
     static void pool(){
         G.setPaint(new RadialGradientPaint(new Point2D.Float(carCx,carCy),carW*1.25f,
@@ -245,7 +292,7 @@ public class Preview {
     }
 
     static void drawStatic(){
-        backdrop(); arcs(); starfield(); pool(); drawCar();
+        backdrop(); arcs(); circuitry(); pool(); drawCar();
         columnScale(rpmX+barW,false,6); columnScale(cooX,true,4);
         frame(rpmX,rpmY0,rpmX+barW,rpmY1); frame(cooX,rpmY0,cooX+barW,rpmY1);
         G.setColor(WHITE); font(H*0.071f,false);
