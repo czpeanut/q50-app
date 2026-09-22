@@ -9,7 +9,7 @@
     <!-- read the vehicle CAN signals (VS_ID_* sensors). protectionLevel=dangerous -> auto-granted on API 10 -->
     <uses-permission android:name="com.ygomi.permission.IVI_CAN_READ" />
 
-    <application android:label="AppGarage Dash" android:icon="@drawable/ic_launcher" android:allowBackup="true">
+    <application android:label="O.R.I.O.N." android:icon="@drawable/ic_launcher" android:allowBackup="true">
         <!-- ivi.isDistractive=false => runningRestriction=0 => USABLE WHILE DRIVING.
              (PackageParser defaults absent apps to 3 = restricted.) Matches DrivingPerformance. -->
         <meta-data android:name="ivi.isDistractive"  android:value="false" />
@@ -28,7 +28,7 @@
              level the InTouch PackageParser reads it from. -->
 
         <!-- Driving screen. Launcher. Long-press opens the watcher. -->
-        <activity android:name=".DashActivity" android:label="AppGarage Dash"
+        <activity android:name=".DashActivity" android:label="O.R.I.O.N."
                   android:icon="@drawable/ic_launcher"
                   android:screenOrientation="landscape"
                   android:keepScreenOn="true">
@@ -40,7 +40,7 @@
         </activity>
 
         <!-- Settings. Reached by long-pressing the dash. -->
-        <activity android:name=".SettingsActivity" android:label="AppGarage Dash"
+        <activity android:name=".SettingsActivity" android:label="O.R.I.O.N."
                   android:icon="@drawable/ic_launcher"
                   android:screenOrientation="landscape"
                   android:keepScreenOn="true">

@@ -1,6 +1,6 @@
-# AppGarage Dash
+# O.R.I.O.N.
 
-<img src="docs/icon.png" width="88" align="right" alt="AppGarage Dash icon" />
+<img src="docs/icon.png" width="88" align="right" alt="O.R.I.O.N. icon" />
 
 A **dongle-free vehicle gauge dashboard** that runs on the factory infotainment screen of the
 **Infiniti InTouch** head unit in the **V37 Q50 / Q60** — reading the car's own CAN-bus signals
@@ -91,17 +91,17 @@ The head unit's **App Garage** installs USB apps only as `.epk` packages. `build
 4. Give the unit a moment after start-up — it can take **up to a minute** to finish loading, showing
    **"Loading all apps"** (or similar) along the bottom of the main screen. Wait until that clears.
 5. From the main screen, press the **right arrow once** — the **App Garage** icon is there. Open it.
-6. Choose **Install Apps via USB**. It lists the apps found on the stick — select **AppGarage Dash**
+6. Choose **Install Apps via USB**. It lists the apps found on the stick — select **O.R.I.O.N.**
    (or **Install All Apps**), then confirm **Install this app?** → **Install**.
 7. Wait for **Installation from USB complete** / **Apps installed** — don't pull the USB mid-install
    (*"Please do not remove the USB during installation"*).
-8. Launch **AppGarage Dash** from App Garage (or its home-screen shortcut). The gauges go live.
+8. Launch **O.R.I.O.N.** from App Garage (or its home-screen shortcut). The gauges go live.
 
 **Updating:** App Garage hides an install candidate whose `versionCode` is ≤ the one already
 installed, so each `build.sh` run stamps a higher `versionCode` (unix time). A new `dash.epk` will
 then appear and install over the old app **provided it's signed with the same key** (`keystore.ks`).
 If it doesn't show in the list, or you rebuilt with a different key — a fresh clone makes its own,
-and the released `.epk` differs from a self-built one — **uninstall the existing "AppGarage Dash"
+and the released `.epk` differs from a self-built one — **uninstall the existing "O.R.I.O.N."
 first**, then install.
 
 > The exact menu wording above is taken from the App Garage firmware; your unit's labels should match
