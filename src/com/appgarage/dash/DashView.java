@@ -133,7 +133,6 @@ public class DashView extends View {
     private final float[] tyreDotX = new float[4], tyreDotY = new float[4];
     private final int[] tyreType = { TP_FL, TP_FR, TP_RL, TP_RR };
     private final RectF gearBox = new RectF();
-    private final RectF torquePlate = new RectF(), coolantPlate = new RectF();
     private float pedalL, pedalR, pedalY0, pedalY1;
 
     public DashView(Context c) {
@@ -203,12 +202,7 @@ public class DashView extends View {
         // The steering dial is gone. It duplicated the heading arrow, which already shows
         // the wheel, and the corner is worth more as somewhere for the car to say what is
         // wrong. The steering figure stays; only the dial went.
-        // The two headline readings sit on solid plates. This is the one change that buys
-        // legibility outright: a number on an opaque backing is not competing with anything
-        // behind it. The right-hand side shifts left to make room for the coolant plate.
-        torquePlate.set(W * 0.015f, H * 0.030f, W * 0.175f, H * 0.208f);
-        coolantPlate.set(W * 0.825f, H * 0.030f, W * 0.985f, H * 0.208f);
-        statusBox.set(W * 0.65f, H * 0.0583f, W * 0.815f, H * 0.1833f);
+        statusBox.set(W * 0.7125f, H * 0.0583f, W * 0.885f, H * 0.1833f);   // clear of 水溫
 
         // the supplied drawing is taller than it is wide, so height is what limits it
         carW = W * 0.255f;
@@ -437,7 +431,7 @@ public class DashView extends View {
         }
 
         int n = torqueValid() ? fmt(d[TORQUE], 0) : dashes();
-        drawNum(c, n, torquePlate.centerX(), H * 0.188f, 1, H * 0.085f,
+        drawNum(c, n, rpmX, H * 0.1667f, 0, H * 0.062f,
                 !torqueValid() ? GREY : frac >= LOAD_RED ? RED : AMBER);
     }
 
@@ -468,15 +462,14 @@ public class DashView extends View {
             c.drawPath(path, p);
         }
         int n = h(COOLANT) ? fmt(d[COOLANT], 0) : dashes();
-        drawNum(c, n, coolantPlate.centerX(), H * 0.188f, 1, H * 0.085f,
+        drawNum(c, n, cooX + barW, H * 0.1667f, 2, H * 0.062f,
                 h(COOLANT) ? (hot ? RED : cold ? AMBER : WHITE) : GREY);
 
         // VQ35 does not want revs until it is warm, so say so plainly
         if (cold) {
             pText.setColor((AMBER & 0x00FFFFFF) | ((int) (0x80 + 0x7F * pulse) << 24));
-            pText.setTextSize(H * 0.038f);
-            pText.setTextAlign(Paint.Align.CENTER);
-            c.drawText(cjk ? "暖車中" : "WARMING", coolantPlate.centerX(), H * 0.236f, pText);
+            pText.setTextSize(H * 0.040f);
+            c.drawText(cjk ? "暖車中" : "WARMING", cooX + barW, H * 0.208f, pText);
         }
     }
 
@@ -507,7 +500,7 @@ public class DashView extends View {
     private void drawSteering(Canvas c) {
         float deg = g(STEER);                       // degrees directly, right positive
         int n = h(STEER) ? fmt(deg, 0) : dashes();
-        drawNum(c, n, W * 0.585f, H * 0.1625f, 1, H * 0.082f, h(STEER) ? WHITE : GREY);
+        drawNum(c, n, W * 0.63f, H * 0.1625f, 1, H * 0.082f, h(STEER) ? WHITE : GREY);
     }
 
     /**
@@ -750,12 +743,16 @@ public class DashView extends View {
         columnScale(c, cooX, true, 4);              // 40..120 C, a tick per 20
         panel(c, rpmX, rpmY0, rpmX + barW, rpmY1);
         panel(c, cooX, rpmY0, cooX + barW, rpmY1);
-        plate(c, torquePlate, true,  AMBER, cjk ? "扭力" : "TORQUE");
-        plate(c, coolantPlate, false, CYAN,  cjk ? "水溫" : "COOLANT");
+        pText.setColor(WHITE);
+        pText.setTextSize(H * 0.071f);
+        pText.setTextAlign(Paint.Align.LEFT);
+        c.drawText(cjk ? "扭力" : "TORQUE", rpmX, H * 0.0833f, pText);
+        pText.setTextAlign(Paint.Align.RIGHT);
+        c.drawText(cjk ? "水溫" : "COOLANT", cooX + barW, H * 0.0833f, pText);
 
         panel(c, gearBox.left, gearBox.top, gearBox.right, gearBox.bottom);
         label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), H * 0.0458f);
-        label(c, cjk ? "轉向角" : "STEERING", W * 0.585f, H * 0.0458f);
+        label(c, cjk ? "轉向角" : "STEERING", W * 0.63f, H * 0.0458f);
 
         panel(c, statusBox.left, statusBox.top, statusBox.right, statusBox.bottom);
         label(c, cjk ? "狀態" : "STATUS", statusBox.centerX(), H * 0.0458f);
@@ -993,69 +990,6 @@ public class DashView extends View {
         c.drawLine(rr - len, t, rr, t, p); c.drawLine(rr, t, rr, t + len, p);
         c.drawLine(l, b - len, l, b, p); c.drawLine(l, b, l + len, b, p);
         c.drawLine(rr - len, b, rr, b, p); c.drawLine(rr, b, rr, b - len, p);
-    }
-
-    /**
-     * A headline plate: near-opaque body with the outer top corner chamfered, a tinted header
-     * band carrying the label, and an accent outline over a soft glow. The chamfer faces the
-     * screen edge, so the pair mirror each other.
-     *
-     * Colour is the whole distinction between them. Coolant is cyan because the reading is
-     * calibrated and means degrees; torque is amber because its unit is unknown and the scale
-     * is a guess, which is the same rule the rest of the screen follows.
-     */
-    private void plate(Canvas c, RectF b, boolean chamferLeft, int accent, String label) {
-        float ch = Math.min(b.height() * 0.22f, b.width() * 0.16f);
-        float head = b.height() * 0.30f;
-
-        platePath(b, chamferLeft, ch, b.bottom);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(0xF2070C14);                      // opaque enough to own its pixels
-        c.drawPath(path, p);
-
-        platePath(b, chamferLeft, ch, b.top + head); // header band, sharing the chamfer
-        p.setColor((accent & 0x00FFFFFF) | 0x2A000000);
-        c.drawPath(path, p);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(1.6f);
-        p.setColor((accent & 0x00FFFFFF) | 0x99000000);
-        c.drawLine(b.left, b.top + head, b.right, b.top + head, p);
-
-        platePath(b, chamferLeft, ch, b.bottom);
-        p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeJoin(Paint.Join.ROUND);
-        p.setColor((accent & 0x00FFFFFF) | 0x33000000);
-        p.setStrokeWidth(6f);                        // glow under the outline
-        c.drawPath(path, p);
-        p.setColor(accent);
-        p.setStrokeWidth(1.8f);
-        c.drawPath(path, p);
-        p.setStrokeCap(Paint.Cap.BUTT);
-        p.setStrokeJoin(Paint.Join.MITER);
-
-        pText.setColor(accent);
-        pText.setTextAlign(Paint.Align.CENTER);
-        pText.setTextSize(fitSize(label, b.width() - W * 0.016f, H * 0.050f));
-        c.drawText(label, b.centerX(), b.top + head * 0.76f, pText);
-    }
-
-    /** plate outline down to a given bottom edge, chamfered on the side facing the screen edge */
-    private void platePath(RectF b, boolean chamferLeft, float ch, float bottom) {
-        path.rewind();
-        if (chamferLeft) {
-            path.moveTo(b.left + ch, b.top);
-            path.lineTo(b.right, b.top);
-            path.lineTo(b.right, bottom);
-            path.lineTo(b.left, bottom);
-            path.lineTo(b.left, b.top + ch);
-        } else {
-            path.moveTo(b.left, b.top);
-            path.lineTo(b.right - ch, b.top);
-            path.lineTo(b.right, b.top + ch);
-            path.lineTo(b.right, bottom);
-            path.lineTo(b.left, bottom);
-        }
-        path.close();
     }
 
     private void label(Canvas c, String s, float cx, float baseline) {
