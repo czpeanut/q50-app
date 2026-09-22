@@ -23,9 +23,9 @@ import java.util.List;
  * redraws a second on a unit that can manage a dozen. Events only update the value array; the
  * timer decides when that becomes pixels.
  *
- * Touch: a long press opens the signal watcher, which is still where the calibration work
- * happens. A tap in the bottom-left corner toggles the labels between Chinese and English, in
- * case this Android layer turns out to have no CJK font.
+ * Touch: a long press opens settings. There is nothing else to reach -- the signal watcher
+ * and the inventory dump were scaffolding for working out what this car publishes, and that
+ * question is answered.
  */
 public class DashActivity extends Activity implements SensorEventListener, Runnable {
 
@@ -51,6 +51,10 @@ public class DashActivity extends Activity implements SensorEventListener, Runna
     @Override
     protected void onResume() {
         super.onResume();
+        // re-read on every resume: this is how a change made in settings takes effect
+        view.setCjk(SettingsActivity.LANG_ZH.equals(
+                SettingsActivity.current(this, view.isCjk()
+                        ? SettingsActivity.LANG_ZH : SettingsActivity.LANG_EN)));
         registerAll();
         handler.removeCallbacks(this);
         handler.postDelayed(this, FRAME_MS);
@@ -104,13 +108,9 @@ public class DashActivity extends Activity implements SensorEventListener, Runna
         if (a == MotionEvent.ACTION_UP) {
             long held = System.currentTimeMillis() - downAt;
             float dx = Math.abs(e.getX() - downX), dy = Math.abs(e.getY() - downY);
-            if (dx < 40f && dy < 40f) {
-                if (held > 700) {
-                    try { startActivity(new Intent(this, SensorWatchActivity.class)); }
-                    catch (Throwable ignored) {}
-                } else if (downX < getWidth() * 0.12f && downY > getHeight() * 0.88f) {
-                    view.setCjk(!view.isCjk());
-                }
+            if (dx < 40f && dy < 40f && held > 700) {
+                try { startActivity(new Intent(this, SettingsActivity.class)); }
+                catch (Throwable ignored) {}
             }
             return true;
         }

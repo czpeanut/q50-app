@@ -84,7 +84,6 @@ public class DashView extends View {
     // throttle, which reads as a percentage. On the declared scale the bar would barely move.
     private static final float ACCEL_FULL = 100f;
     private static final float G_FULL = 1.0f;       // friction circle outer ring
-    private static final float EV_RPM = 50f, EV_KMH = 3f;
 
     // ---- palette ----
     private static final int BG_TOP = 0xFF060A12, BG_BOT = 0xFF0C1420;
@@ -105,7 +104,6 @@ public class DashView extends View {
     private long t0, lastFrame;
     private float peak, peakVel;
     private long peakHold;
-    private boolean rpmSeen;          // has type 13 ever left zero this session
     private int lastGear = -999;
     private long gearFlash;
     private final float[] trailX = new float[TRAIL], trailY = new float[TRAIL];
@@ -134,7 +132,7 @@ public class DashView extends View {
     private final RectF[] tyreBox = new RectF[4];
     private final float[] tyreDotX = new float[4], tyreDotY = new float[4];
     private final int[] tyreType = { TP_FL, TP_FR, TP_RL, TP_RR };
-    private final RectF evBox = new RectF(), gearBox = new RectF();
+    private final RectF gearBox = new RectF();
     private float pedalL, pedalR, pedalY0, pedalY1;
 
     public DashView(Context c) {
@@ -152,13 +150,20 @@ public class DashView extends View {
         measureCells();
         // This Android layer is a guest system and its font set is not guaranteed. A
         // zero-width measurement means the glyph is missing: fall back rather than draw tofu.
+        // The probe only picks the first-run default: if this Android layer has no CJK font
+        // the glyph measures zero wide and English comes up. Settings overrides it after that.
         cjk = new Paint().measureText("轉") > 0.5f;
         t0 = lastFrame = System.currentTimeMillis();
     }
 
     public void setValue(int t, float val) { if (t >= 0 && t < 64) { v[t] = val; have[t] = true; } }
     public boolean isCjk() { return cjk; }
-    public void setCjk(boolean on) { cjk = on; staticLayer = null; invalidate(); }
+    public void setCjk(boolean on) {
+        if (on == cjk) return;                  // no need to rebuild the backdrop for nothing
+        cjk = on;
+        staticLayer = null;
+        invalidate();
+    }
 
     private float g(int t) { return have[t] ? d[t] : 0f; }
     private boolean h(int t) { return have[t]; }
@@ -187,8 +192,9 @@ public class DashView extends View {
         rpmY0 = H * 0.225f;                      // headings own everything above this
         rpmY1 = H * 0.929f;
 
+        // The EV badge is gone. It inferred electric drive from zero rpm at road speed, and
+        // type 13 never once left zero across a whole trip, so there was nothing behind it.
         gearBox.set(W * 0.1875f, H * 0.0583f, W * 0.2875f, H * 0.1833f);
-        evBox.set(W * 0.305f, H * 0.0583f, W * 0.405f, H * 0.1833f);
 
         // The steering readout sits beside its own dial rather than above the car, which
         // keeps the whole centre column free for the heading arrow to rise into. The two
@@ -246,7 +252,6 @@ public class DashView extends View {
         drawTorque(c, now);
         drawCoolant(c, pulse);
         drawGear(c, now);
-        drawEv(c, pulse);
         drawSteering(c);
         drawTyres(c, pulse);
         drawStatus(c, pulse);
@@ -332,11 +337,6 @@ public class DashView extends View {
             if (peak < frac) { peak = frac; peakVel = 0f; }
             if (peak < 0f) peak = 0f;
         }
-
-        // Type 13 stayed at 0.000 for an entire warm drive, so "engine stopped" and "signal
-        // dead" are indistinguishable until it is seen to move at least once. Until then the
-        // EV badge has no evidence to stand on and says so by staying dim.
-        if (h(RPM) && v[RPM] > EV_RPM) rpmSeen = true;
 
         int gear = h(GEAR) ? (int) (v[GEAR] + 0.5f) : -999;
         if (gear != lastGear) { lastGear = gear; gearFlash = now + 320; }
@@ -495,26 +495,6 @@ public class DashView extends View {
             case 20: return "M5"; case 21: return "M6"; case 22: return "M7";
             default: return "--";
         }
-    }
-
-    /**
-     * Electric drive, inferred. No signal in the inventory reports the hybrid battery, so the
-     * engine standing still while the car is moving is the whole of the available evidence.
-     */
-    private void drawEv(Canvas c, float pulse) {
-        boolean known = h(RPM) && h(SPEED) && rpmSeen;
-        boolean moving = known && d[SPEED] > EV_KMH;
-        boolean engineOff = known && d[RPM] < EV_RPM;
-        boolean ev = moving && engineOff;
-
-        if (ev) {
-            p.setStyle(Paint.Style.FILL);
-            p.setColor((GREEN & 0x00FFFFFF) | ((int) (0x22 + 0x26 * pulse) << 24));
-            c.drawRect(evBox, p);
-        }
-        pNum.setColor(!known ? GREY : ev ? GREEN : 0xFF2F4A44);
-        pNum.setTextSize(H * 0.082f);
-        c.drawText("EV", evBox.centerX(), H * 0.152f, pNum);
     }
 
     private void drawSteering(Canvas c) {
@@ -773,8 +753,6 @@ public class DashView extends View {
 
         panel(c, gearBox.left, gearBox.top, gearBox.right, gearBox.bottom);
         label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), H * 0.0458f);
-        panel(c, evBox.left, evBox.top, evBox.right, evBox.bottom);
-        label(c, cjk ? "純電" : "ELECTRIC", evBox.centerX(), H * 0.0458f);
         label(c, cjk ? "轉向角" : "STEERING", W * 0.63f, H * 0.0458f);
 
         panel(c, statusBox.left, statusBox.top, statusBox.right, statusBox.bottom);

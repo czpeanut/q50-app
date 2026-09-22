@@ -19,7 +19,7 @@ public class Preview {
     static final float TORQUE_MAX=1800f, TORQUE_INVALID=-300f, LOAD_AMBER=0.84f, LOAD_RED=0.94f;
     static final float COOLANT_MIN=40f, COOLANT_MAX=120f, COOLANT_COLD=60f, COOLANT_WARN=105f;
     static final float TPMS_LOW=30f, TPMS_HIGH=44f, STEER_FULL=390f, TPMS_PRESENT=1f, G_ALERT=0.60f;
-    static final float BRAKE_FULL=90f, ACCEL_FULL=100f, G_FULL=1.0f, EV_RPM=50f, EV_KMH=3f;
+    static final float BRAKE_FULL=90f, ACCEL_FULL=100f, G_FULL=1.0f;
     static final Color BG_TOP=c(0xFF060A12), BG_BOT=c(0xFF0C1420);
     static final Color CYAN=c(0xFF3FD2FF), CYAN_DIM=c(0xFF1B4E66);
     static final Color WHITE=c(0xFFEAF6FF), GREY=c(0xFF55697C), DARK=c(0xFF13212C);
@@ -38,7 +38,7 @@ public class Preview {
     static float rpmX,rpmY0,rpmY1,barW,cooX,carCx,carCy,carW,carH,gCx,gCy,gR;
     static Rectangle2D.Float statusBox;
     static Rectangle2D.Float[] tyreBox=new Rectangle2D.Float[4];
-    static Rectangle2D.Float evBox,gearBox;
+    static Rectangle2D.Float gearBox;
     static float[] tdx=new float[4],tdy=new float[4];
     static int[] tyreType={TP_FL,TP_FR,TP_RL,TP_RR};
     static float pedalL,pedalR,pedalY0,pedalY1;
@@ -81,13 +81,12 @@ public class Preview {
             sx+=cw;
         }
     }
-    static float pulse=1f, peak=0f, maxG=0f; static boolean gearFlash=false, rpmSeen=false;
+    static float pulse=1f, peak=0f, maxG=0f; static boolean gearFlash=false;
     static float[] trailX=new float[TRAIL], trailY=new float[TRAIL]; static int trailN=0;
 
     static void layout(){
         barW=W*0.0625f; rpmX=W*0.0225f; cooX=W-rpmX-barW; rpmY0=H*0.225f; rpmY1=H*0.929f;
         gearBox=new Rectangle2D.Float(W*0.1875f,H*0.0583f,W*0.10f,H*0.125f);
-        evBox  =new Rectangle2D.Float(W*0.305f, H*0.0583f,W*0.10f,H*0.125f);
         statusBox=new Rectangle2D.Float(W*0.7125f,H*0.0583f,W*0.1725f,H*0.125f);
         carW=W*0.255f; carH=H*0.46f; carCx=W*0.5f; carCy=H*0.555f;
         float bw=W*0.1875f,bh=H*0.125f,leftX=W*0.11f,rightX=W*0.7025f,topY=H*0.335f,botY=H*0.585f;
@@ -253,7 +252,6 @@ public class Preview {
         text(cjk?"扭力":"TORQUE",rpmX,H*0.0833f,0);
         text(cjk?"水溫":"COOLANT",cooX+barW,H*0.0833f,2);
         frame(gearBox); label(cjk?"檔位":"GEAR",(float)gearBox.getCenterX(),H*0.0458f);
-        frame(evBox);   label(cjk?"純電":"ELECTRIC",(float)evBox.getCenterX(),H*0.0458f);
         label(cjk?"轉向角":"STEERING",W*0.63f,H*0.0458f);
         frame(statusBox); label(cjk?"狀態":"STATUS",(float)statusBox.getCenterX(),H*0.0458f);
         for(int i=0;i<4;i++){
@@ -320,12 +318,6 @@ public class Preview {
         if(gearFlash) rectF((float)gearBox.getMinX(),(float)gearBox.getMinY(),(float)gearBox.getMaxX(),(float)gearBox.getMaxY(),c(0x333FD2FF));
         G.setColor(h(GEAR)?(gearFlash?WHITE:CYAN):GREY); font(H*0.105f,true);
         num(gearText(),(float)gearBox.getCenterX(),H*0.1583f,1);
-        // ev
-        boolean known=h(RPM)&&h(SPEED)&&rpmSeen, moving=known&&g(SPEED)>EV_KMH, engineOff=known&&g(RPM)<EV_RPM;
-        boolean ev=moving&&engineOff;
-        if(ev) rectF((float)evBox.getMinX(),(float)evBox.getMinY(),(float)evBox.getMaxX(),(float)evBox.getMaxY(),al(GREEN,(int)(0x22+0x26*pulse)));
-        G.setColor(!known?GREY:ev?GREEN:c(0xFF2F4A44)); font(H*0.088f,true);
-        num("EV",(float)evBox.getCenterX(),H*0.152f,1);
         // steering
         float deg=g(STEER);
         G.setColor(h(STEER)?WHITE:GREY); font(H*0.082f,true);
@@ -478,7 +470,7 @@ public class Preview {
             set(G_LAT,-0.35f); set(G_LONG,0.88f); seedTrail(-0.35f,0.88f,true);
             set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,27.5f);
         } else if(mode.equals("ev")){
-            rpmSeen=true; pulse=1f; peak=0.22f; maxG=0.18f; gearFlash=false;
+            pulse=1f; peak=0.22f; maxG=0.18f; gearFlash=false;
             set(TORQUE,-400f); set(RPM,0f); set(COOLANT,52f); set(SPEED,31f); set(GEAR,4f);
             set(ACCEL,12f); set(BRAKE,0f); set(STEER,-4f);
             set(G_LAT,0.05f); set(G_LONG,-0.03f); seedTrail(0.05f,-0.03f,false);

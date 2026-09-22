@@ -9,11 +9,6 @@
     <!-- read the vehicle CAN signals (VS_ID_* sensors). protectionLevel=dangerous -> auto-granted on API 10 -->
     <uses-permission android:name="com.ygomi.permission.IVI_CAN_READ" />
 
-    <!-- for the storage probe / CSV recorder in SensorWatchActivity. On API 10 this is
-         granted at install time; internal storage (getFilesDir) needs no permission at all,
-         so the probe still reports something even if this is refused. -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-
     <application android:label="AppGarage Dash" android:icon="@drawable/ic_launcher" android:allowBackup="true">
         <!-- ivi.isDistractive=false => runningRestriction=0 => USABLE WHILE DRIVING.
              (PackageParser defaults absent apps to 3 = restricted.) Matches DrivingPerformance. -->
@@ -26,7 +21,7 @@
         <meta-data android:name="ivi.defaultDisplay" android:value="LOWER" />
 
         <!-- ==== LAUNCHER SWITCH ====
-             Exactly one of the three activities below carries the MAIN/LAUNCHER
+             Exactly one of the activities below carries the MAIN/LAUNCHER
              intent-filter. To change which screen the app opens on, move the
              <intent-filter> block — nothing else needs to change. Every activity repeats
              ivi.isDistractive="false" so the non-distractive flag travels with it whichever
@@ -44,24 +39,8 @@
             </intent-filter>
         </activity>
 
-        <!-- Live watcher with min/max latch + storage probe + CSV recorder. -->
-        <activity android:name=".SensorWatchActivity" android:label="AppGarage Dash"
-                  android:icon="@drawable/ic_launcher"
-                  android:screenOrientation="landscape"
-                  android:keepScreenOn="true">
-            <meta-data android:name="ivi.isDistractive" android:value="false" />
-        </activity>
-
-        <!-- Sensor inventory dump. Reachable from the watcher's LIST button. -->
-        <activity android:name=".SensorListActivity" android:label="AppGarage Dash"
-                  android:icon="@drawable/ic_launcher"
-                  android:screenOrientation="landscape"
-                  android:keepScreenOn="true">
-            <meta-data android:name="ivi.isDistractive" android:value="false" />
-        </activity>
-
-        <!-- Gauge screen: kept declared, just not the launcher right now. -->
-        <activity android:name=".MainActivity" android:label="AppGarage Dash"
+        <!-- Settings. Reached by long-pressing the dash. -->
+        <activity android:name=".SettingsActivity" android:label="AppGarage Dash"
                   android:icon="@drawable/ic_launcher"
                   android:screenOrientation="landscape"
                   android:keepScreenOn="true">

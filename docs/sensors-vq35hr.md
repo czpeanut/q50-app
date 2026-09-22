@@ -14,9 +14,12 @@ system's state of charge is **not exposed through the Android Sensor API** on th
 though the factory InTouch energy-flow screen clearly has the data. It presumably stays in the
 Linux/AV layer.
 
-The closest substitute is **type 26 `VS_ID_REGENERATION`**, which is the only powertrain-energy
-signal present. Whether it is actually fed on this car is not answerable from the inventory —
-that needs live values, which is what `SensorWatchActivity` exists to find out.
+Type 26 `VS_ID_REGENERATION`, the only powertrain-energy signal in the list, turned out to hold
+a flat zero across a full drive. Type 13 `ENGINE_RPM` is dead too, which closes the last
+indirect route: electric drive cannot be inferred from an engine speed that never reports.
+
+**There is no hybrid state on this bus at all.** The nearest thing the car does publish is type
+12 `EFFECTIVE_TORQUE`, which moves with load but says nothing about where the power came from.
 
 ## Confirmed on-car (measured, not inferred)
 
@@ -26,7 +29,7 @@ that needs live values, which is what `SensorWatchActivity` exists to find out.
 | 25 `STEERING_ANGLE` | **raw value is degrees directly**, **signed: right positive, left negative**, roughly **±390 at full lock**, carrying one decimal. Note this is *not* the 0.1-degree unit the `resolution` field implies — 390 raw is 390°, matching the quick DAS rack. Fully calibrated; ready to use as-is. |
 | 12 `EFFECTIVE_TORQUE` | **live and wide-ranging** — −400 (rest placeholder) to 1647.5 over one 578 s drive. The only powertrain signal on this car that genuinely moves. Unit unknown, so it is displayed uncalibrated. |
 | 26 `REGENERATION` | **flat zero.** Held 0.000 for min, max and current across a full 578 s drive with braking, having previously looked alive only because a constant zero counts events like any other value. Nothing in the Sensor API carries hybrid energy flow. |
-| 13 `ENGINE_RPM` | **unreliable.** Stayed at 0.000 for an entire 578 s drive reaching 41 km/h, on a car whose coolant was already at 83 °C. Either it only publishes under conditions not yet identified, or it does not publish at all. Not safe to build on. |
+| 13 `ENGINE_RPM` | **dead.** Stayed at 0.000 across repeated drives on a warm car, including a whole trip watched by an indicator that would have lit the moment it left zero. It never did. Nothing can be built on it, and the electric-drive inference that depended on it has been removed. |
 | 23 `ACCELERATOR_PEDAL_POSITION` | peaked at **39.25** under ordinary throttle, which reads as a percentage despite the declared maximum of 1000. |
 | 24 `BRAKE_PEDAL_POSITION` | 0 to **54** observed under normal braking, against a declared maximum of 90. |
 | 26 `REGENERATION` (earlier note) | **live.** Delivers events continuously (n rose with every other signal); it simply reads a flat 0.000 while stationary with the engine off. An earlier note recording it as dead was a misreading — a constant zero is not an absent signal. Its behaviour under load is still unknown and is the one open hybrid question. |
@@ -99,7 +102,7 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 | Type | Name | max | res | Notes |
 |---|---|---|---|---|
 | 12 | `VS_ID_EFFECTIVE_TORQUE` | 879.0 | 1.0 | **live, −400 at rest to 1647.5 driving.** Unit unknown; max field is a placeholder |
-| 13 | `VS_ID_ENGINE_RPM` | 879.0 | 1.0 | **unreliable — 0.000 for an entire warm 578 s drive** |
+| 13 | `VS_ID_ENGINE_RPM` | 879.0 | 1.0 | **dead — 0.000 across repeated warm drives** |
 | 14 | `VS_ID_ENGINE_COOLANT_TEMPERATURE` | 214.0 | 1.0 | °C direct |
 | 15 | `VS_ID_ENGINE_OIL_TEMPERATURE` | 205.0 | 1.0 | reported −50 at rest on this car |
 | 16 | `VS_ID_ENGINE_OIL_PRESSURE` | 879.0 | 1.0 | placeholder max; MPa on VR30 |
