@@ -131,9 +131,10 @@ deliberately not committed, so keep yours if you want your own rebuilds to insta
 - `keys/obu_cert.pem` is the **public half** of a fleet certificate that ships inside InTouch
   firmware. No private key, no firmware and no password is distributed — see
   [`keys/README.md`](keys/README.md).
-- `assets/car.png` was supplied by this repository's owner. **If you fork or redistribute this,
-  check that you have the right to the artwork** — replace it with your own drawing if in doubt.
-  Everything else here is either original or credited above.
+- `assets/car.png` was traced by this repository's owner from a photograph of their own car,
+  with an AI tool. If you fork this and want a different car on the screen,
+  `tools/MakeCarAsset.java` turns any ordinary light-on-black drawing into the keyed, tinted PNG
+  the screen expects. Everything else here is either original or credited above.
 
 Not affiliated with Infiniti, Nissan, Ygomi or Airbiquity. "O.R.I.O.N." is just a name. Code is
 MIT licensed (see [`LICENSE`](LICENSE)); the bundled font and artwork carry their own terms as
