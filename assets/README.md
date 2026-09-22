@@ -45,3 +45,33 @@ bash tools/preview.sh
 
 renders the whole screen to `build/preview/*.png` at the real 800 × 480, using this file if it
 is present.
+
+---
+
+# `dash.ttf` — the display face for the readouts
+
+Every number on the driving screen is drawn in this font. It ships as **Chakra Petch Bold**
+(SIL Open Font License, licence text alongside it in `dash.ttf.LICENSE.txt`), chosen for being
+squared and technical without being a novelty face, and legible at the small sizes the tyre
+callouts use. Swap it by replacing the file; there is no code change, and the app falls back to
+the system monospace if it is missing or unreadable.
+
+Two things matter when choosing a replacement:
+
+- **It must be a static TrueType file.** Android 2.3 cannot read variable fonts, and the modern
+  Google Fonts download is usually a variable font. Take a static instance — the `static/`
+  folder in the font's repository, or a release that predates the variable version.
+- **It only needs Latin.** The Chinese labels are deliberately drawn with a *system* typeface,
+  because Android falls back to its own CJK font there, and a typeface loaded from assets does
+  not fall back at all — a Latin-only face asked to draw Chinese renders blanks.
+
+Digit widths are not a constraint. Most display faces have proportional figures, where a `1` is
+narrower than a `0`, which would make a changing value shuffle sideways on every update; the
+screen draws each character centred in a fixed cell measured from the font's widest digit, so
+the numbers stay in column whatever face is loaded.
+
+Check a candidate the same way as the car drawing:
+
+```
+bash tools/preview.sh        # uses assets/dash.ttf
+```

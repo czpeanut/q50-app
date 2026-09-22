@@ -101,7 +101,9 @@ public class DashView extends View {
 
     // ---- preallocated drawing state ----
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint pText = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint pText = new Paint(Paint.ANTI_ALIAS_FLAG);   // labels, incl. CJK
+    private final Paint pNum = new Paint(Paint.ANTI_ALIAS_FLAG);    // the packaged display face
+    private float cellDigit = 0.6f, cellDot = 0.3f, cellMinus = 0.4f;
     private final RectF r = new RectF();
     private final Path path = new Path();
     private final char[] buf = new char[20];
@@ -125,7 +127,16 @@ public class DashView extends View {
     public DashView(Context c) {
         super(c);
         for (int i = 0; i < 4; i++) tyreBox[i] = new RectF();
-        pText.setTypeface(Typeface.MONOSPACE);      // digits must not jitter as they change
+        // Labels keep a system typeface: Android falls back to DroidSansFallback for CJK
+        // there, and a typeface loaded from assets does not fall back at all -- a Latin-only
+        // display face would draw the Chinese labels as blanks.
+        pText.setTypeface(Typeface.MONOSPACE);
+        Typeface face = null;
+        try { face = Typeface.createFromAsset(c.getAssets(), "dash.ttf"); }
+        catch (Throwable t) { face = null; }        // absent or unreadable: fall back
+        pNum.setTypeface(face != null ? face : Typeface.MONOSPACE);
+        pNum.setTextAlign(Paint.Align.CENTER);      // drawNum positions each cell itself
+        measureCells();
         // This Android layer is a guest system and its font set is not guaranteed. A
         // zero-width measurement means the glyph is missing: fall back rather than draw tofu.
         cjk = new Paint().measureText("轉") > 0.5f;
@@ -394,11 +405,9 @@ public class DashView extends View {
             c.drawRect(rpmX - 2f, y - 1.5f, rpmX + barW + 2f, y + 1.5f, p);
         }
 
-        pText.setColor(h(RPM) ? (frac >= SHIFT_RED ? RED : WHITE) : GREY);
-        pText.setTextSize(H * 0.062f);
-        pText.setTextAlign(Paint.Align.LEFT);
         int n = h(RPM) ? fmt(d[RPM], 0) : dashes();
-        c.drawText(buf, 0, n, rpmX, H * 0.1667f, pText);
+        drawNum(c, n, rpmX, H * 0.1667f, 0, H * 0.062f,
+                h(RPM) ? (frac >= SHIFT_RED ? RED : WHITE) : GREY);
     }
 
     private void drawCoolant(Canvas c, float pulse) {
@@ -427,11 +436,9 @@ public class DashView extends View {
             path.quadTo((x0 + x1) * 0.5f, top - 4f, x1, top);
             c.drawPath(path, p);
         }
-        pText.setColor(h(COOLANT) ? (hot ? RED : cold ? AMBER : WHITE) : GREY);
-        pText.setTextSize(H * 0.062f);
-        pText.setTextAlign(Paint.Align.RIGHT);
         int n = h(COOLANT) ? fmt(d[COOLANT], 0) : dashes();
-        c.drawText(buf, 0, n, cooX + barW, H * 0.1667f, pText);
+        drawNum(c, n, cooX + barW, H * 0.1667f, 2, H * 0.062f,
+                h(COOLANT) ? (hot ? RED : cold ? AMBER : WHITE) : GREY);
 
         // VQ35 does not want revs until it is warm, so say so plainly
         if (cold) {
@@ -448,10 +455,9 @@ public class DashView extends View {
             p.setColor(0x333FD2FF);
             c.drawRect(gearBox, p);
         }
-        pText.setColor(h(GEAR) ? (flash ? WHITE : CYAN) : GREY);
-        pText.setTextSize(H * 0.105f);
-        pText.setTextAlign(Paint.Align.CENTER);
-        c.drawText(gearText(), gearBox.centerX(), H * 0.1583f, pText);
+        pNum.setColor(h(GEAR) ? (flash ? WHITE : CYAN) : GREY);
+        pNum.setTextSize(H * 0.105f);
+        c.drawText(gearText(), gearBox.centerX(), H * 0.1583f, pNum);
     }
 
     /** P=1 R=2 N=3 D=4, M1..M7 = 16..22, confirmed on-car */
@@ -481,19 +487,15 @@ public class DashView extends View {
             p.setColor((GREEN & 0x00FFFFFF) | ((int) (0x22 + 0x26 * pulse) << 24));
             c.drawRect(evBox, p);
         }
-        pText.setColor(!known ? GREY : ev ? GREEN : 0xFF2F4A44);
-        pText.setTextSize(H * 0.088f);
-        pText.setTextAlign(Paint.Align.CENTER);
-        c.drawText("EV", evBox.centerX(), H * 0.152f, pText);
+        pNum.setColor(!known ? GREY : ev ? GREEN : 0xFF2F4A44);
+        pNum.setTextSize(H * 0.082f);
+        c.drawText("EV", evBox.centerX(), H * 0.152f, pNum);
     }
 
     private void drawSteering(Canvas c) {
         float deg = g(STEER);                       // degrees directly, right positive
-        pText.setColor(h(STEER) ? WHITE : GREY);
-        pText.setTextSize(H * 0.0958f);
-        pText.setTextAlign(Paint.Align.CENTER);
         int n = h(STEER) ? fmt(deg, 0) : dashes();
-        c.drawText(buf, 0, n, W * 0.655f, H * 0.1625f, pText);
+        drawNum(c, n, W * 0.655f, H * 0.1625f, 1, H * 0.0958f, h(STEER) ? WHITE : GREY);
 
         c.save();
         c.rotate(h(STEER) ? deg : 0f, dialCx, dialCy);
@@ -531,14 +533,12 @@ public class DashView extends View {
                 p.setColor((AMBER & 0x00FFFFFF) | ((int) (0x14 + 0x1C * pulse) << 24));
                 c.drawRect(b, p);
             }
-            pText.setColor(col);
-            pText.setTextSize(H * 0.070f);
-            pText.setTextAlign(Paint.Align.LEFT);
             int n = ok ? fmt(psi, 1) : dashes();
             float nx = b.left + W * 0.012f, ny = b.bottom - H * 0.018f;
-            float nw = pText.measureText(buf, 0, n);        // measure it, never guess
-            c.drawText(buf, 0, n, nx, ny, pText);
+            float nw = numWidth(n, H * 0.070f);
+            drawNum(c, n, nx, ny, 0, H * 0.070f, col);
             pText.setTextSize(H * 0.040f);
+            pText.setTextAlign(Paint.Align.LEFT);
             pText.setColor(GREY);
             c.drawText("PSI", nx + nw + W * 0.012f, ny, pText);
 
@@ -580,10 +580,8 @@ public class DashView extends View {
         pText.setTextSize(H * 0.036f);
         pText.setColor(GREY);
         c.drawText(cjk ? "G 最大" : "PEAK G", lx, gCy - H * 0.010f, pText);
-        pText.setColor(ok ? CYAN : GREY);
-        pText.setTextSize(H * 0.052f);
         int n = ok ? fmt(maxG, 2) : dashes();
-        c.drawText(buf, 0, n, lx, gCy + H * 0.052f, pText);
+        drawNum(c, n, lx, gCy + H * 0.052f, 0, H * 0.052f, ok ? CYAN : GREY);
     }
 
     private static float clamp1(float x) { return x < -1f ? -1f : x > 1f ? 1f : x; }
@@ -613,11 +611,8 @@ public class DashView extends View {
     }
 
     private void drawSpeed(Canvas c) {
-        pText.setColor(h(SPEED) ? WHITE : GREY);
-        pText.setTextSize(H * 0.145f);
-        pText.setTextAlign(Paint.Align.CENTER);
         int n = h(SPEED) ? fmt(d[SPEED], 0) : dashes();
-        c.drawText(buf, 0, n, W * 0.80f, H * 0.935f, pText);
+        drawNum(c, n, W * 0.80f, H * 0.935f, 1, H * 0.145f, h(SPEED) ? WHITE : GREY);
     }
 
     // ------------------------------------------------------------------ static layer
@@ -975,6 +970,57 @@ public class DashView extends View {
         }
         p.setStrokeCap(Paint.Cap.BUTT);
         p.setStrokeJoin(Paint.Join.MITER);
+    }
+
+    /**
+     * Measure the widest digit once, as a fraction of the text size, so numbers can be drawn
+     * on a fixed cell.
+     *
+     * Only one of the display faces worth using has tabular figures; in the rest a 1 is
+     * narrower than a 0, so a value counting up would shuffle every digit sideways. Rather
+     * than let that dictate the typeface, each character is drawn centred in a cell of its own
+     * and the font choice stays free.
+     */
+    private void measureCells() {
+        Paint m = new Paint(Paint.ANTI_ALIAS_FLAG);
+        m.setTypeface(pNum.getTypeface());
+        m.setTextSize(100f);
+        char[] one = new char[1];
+        float mx = 0f;
+        for (char ch = '0'; ch <= '9'; ch++) {
+            one[0] = ch;
+            float w = m.measureText(one, 0, 1);
+            if (w > mx) mx = w;
+        }
+        if (mx <= 0f) return;                       // measurement failed: keep the defaults
+        cellDigit = mx / 100f;
+        one[0] = '.'; cellDot = m.measureText(one, 0, 1) / 100f;
+        one[0] = '-'; cellMinus = m.measureText(one, 0, 1) / 100f;
+    }
+
+    private float cellFor(char ch) {
+        if (ch == '.') return cellDot;
+        if (ch == '-') return cellMinus;
+        return cellDigit;
+    }
+
+    private float numWidth(int n, float size) {
+        float w = 0f;
+        for (int i = 0; i < n; i++) w += cellFor(buf[i]) * size;
+        return w;
+    }
+
+    /** align: 0 left, 1 centre, 2 right. Allocates nothing. */
+    private void drawNum(Canvas c, int n, float x, float y, int align, float size, int color) {
+        pNum.setTextSize(size);
+        pNum.setColor(color);
+        float total = numWidth(n, size);
+        float sx = align == 0 ? x : align == 1 ? x - total * 0.5f : x - total;
+        for (int i = 0; i < n; i++) {
+            float cw = cellFor(buf[i]) * size;
+            c.drawText(buf, i, 1, sx + cw * 0.5f, y, pNum);
+            sx += cw;
+        }
     }
 
     private int dashes() { buf[0] = '-'; buf[1] = '-'; return 2; }

@@ -14,9 +14,14 @@
 #   bash tools/preview.sh warn       # redline, hot coolant, soft tyre, hard braking
 #   bash tools/preview.sh ev         # electric drive, engine off, still warming up
 #   bash tools/preview.sh normal en  # English labels
+#
+# It uses assets/dash.ttf for the readouts, the same file the app loads, so dropping a
+# different TTF in there and re-running is how to compare display faces.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build/preview
 javac -encoding UTF-8 -d build/preview tools/Preview.java
-( cd build/preview && java Preview "${1:-normal}" "${2:-zh}" )
+FONT="$PWD/assets/dash.ttf"
+[ -f "$FONT" ] || FONT=""
+( cd build/preview && java Preview "${1:-normal}" "${2:-zh}" "$FONT" )
 echo "-> build/preview/*.png"

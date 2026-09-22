@@ -1,5 +1,6 @@
 import java.awt.*;
 import java.awt.geom.*;
+import java.awt.font.FontRenderContext;
 import java.awt.MultipleGradientPaint;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -41,6 +42,44 @@ public class Preview {
     static int[] tyreType={TP_FL,TP_FR,TP_RL,TP_RR};
     static float pedalL,pedalR,pedalY0,pedalY1;
     static Graphics2D G; static boolean cjk=true; static String FONT="WenQuanYi Zen Hei";
+    static Font numFont=null;               // the packaged display face, if one was given
+    static float cellDigit=0.6f, cellDot=0.3f, cellMinus=0.4f;
+
+    /** measure the widest digit once, so numbers can be drawn on a fixed cell */
+    static void measureCells(Font f){
+        FontRenderContext frc=new FontRenderContext(null,true,true);
+        Font at100=f.deriveFont(100f);
+        float mx=0;
+        for(char ch='0';ch<='9';ch++){
+            float w=(float)at100.getStringBounds(String.valueOf(ch),frc).getWidth();
+            if(w>mx) mx=w;
+        }
+        cellDigit=mx/100f;
+        cellDot=(float)at100.getStringBounds(".",frc).getWidth()/100f;
+        cellMinus=(float)at100.getStringBounds("-",frc).getWidth()/100f;
+    }
+    static float cellFor(char ch){
+        if(ch=='.') return cellDot;
+        if(ch=='-') return cellMinus;
+        return cellDigit;
+    }
+    static float numWidth(String t,float size){
+        float w=0; for(int i=0;i<t.length();i++) w+=cellFor(t.charAt(i))*size; return w;
+    }
+    /** draw a number with a fixed cell per character: no jitter, whatever the font */
+    static void num(String t,float x,float y,int align){
+        float size=G.getFont().getSize2D();
+        float total=numWidth(t,size);
+        float sx = align==0?x : align==1?x-total/2f : x-total;
+        FontMetrics fm=G.getFontMetrics();
+        for(int i=0;i<t.length();i++){
+            char ch=t.charAt(i);
+            float cw=cellFor(ch)*size;
+            float gw=fm.charWidth(ch);
+            G.drawString(String.valueOf(ch), sx+(cw-gw)/2f, y);
+            sx+=cw;
+        }
+    }
     static float pulse=1f, peak=0f, maxG=0f; static boolean gearFlash=false;
     static float[] trailX=new float[TRAIL], trailY=new float[TRAIL]; static int trailN=0;
 
@@ -62,7 +101,10 @@ public class Preview {
         gR=H*0.080f; gCx=W*0.15f; gCy=H*0.855f;
         pedalL=W*0.3125f; pedalR=W*0.6875f; pedalY0=H*0.855f; pedalY1=H*0.915f;
     }
-    static void font(float px,boolean mono){ G.setFont(new Font(mono?"monospaced":FONT,Font.PLAIN,Math.round(px))); }
+    static void font(float px,boolean mono){
+        if(mono && numFont!=null) G.setFont(numFont.deriveFont(px));
+        else G.setFont(new Font(mono?"monospaced":FONT,Font.PLAIN,Math.round(px)));
+    }
     static float tw(String s){ return G.getFontMetrics().stringWidth(s); }
     static void text(String s,float x,float y,int align){
         float w=tw(s); G.drawString(s, align==0?x:align==1?x-w/2f:x-w, y);
@@ -263,7 +305,7 @@ public class Preview {
         }
         if(peak>0.02f){ float y=rpmY1-inner-peak*span; rectF(rpmX-2f,y-1.5f,rpmX+barW+2f,y+1.5f,WHITE); }
         G.setColor(h(RPM)?(frac>=SHIFT_RED?RED:WHITE):GREY); font(H*0.062f,true);
-        text(h(RPM)?fmt(g(RPM),0):"--",rpmX,H*0.1667f,0);
+        num(h(RPM)?fmt(g(RPM),0):"--",rpmX,H*0.1667f,0);
         // coolant
         float ix=barW*0.18f,cx0=cooX+ix,cx1=cooX+barW-ix,cy0=rpmY0+ix,cy1=rpmY1-ix;
         float cf=h(COOLANT)?(g(COOLANT)-COOLANT_MIN)/(COOLANT_MAX-COOLANT_MIN):0f;
@@ -277,23 +319,23 @@ public class Preview {
             GeneralPath w=new GeneralPath(); w.moveTo(cx0,top); w.quadTo((cx0+cx1)*0.5f,top-4,cx1,top); G.draw(w);
         }
         G.setColor(h(COOLANT)?(hot?RED:cold?AMBER:WHITE):GREY); font(H*0.062f,true);
-        text(h(COOLANT)?fmt(g(COOLANT),0):"--",cooX+barW,H*0.1667f,2);
+        num(h(COOLANT)?fmt(g(COOLANT),0):"--",cooX+barW,H*0.1667f,2);
         if(cold){ G.setColor(al(AMBER,(int)(0x80+0x7F*pulse))); font(H*0.040f,true);
                   text(cjk?"暖車中":"WARMING",cooX+barW,H*0.208f,2); }
         // gear
         if(gearFlash) rectF((float)gearBox.getMinX(),(float)gearBox.getMinY(),(float)gearBox.getMaxX(),(float)gearBox.getMaxY(),c(0x333FD2FF));
         G.setColor(h(GEAR)?(gearFlash?WHITE:CYAN):GREY); font(H*0.105f,true);
-        text(gearText(),(float)gearBox.getCenterX(),H*0.1583f,1);
+        num(gearText(),(float)gearBox.getCenterX(),H*0.1583f,1);
         // ev
         boolean known=h(RPM)&&h(SPEED), moving=known&&g(SPEED)>EV_KMH, engineOff=known&&g(RPM)<EV_RPM;
         boolean ev=moving&&engineOff;
         if(ev) rectF((float)evBox.getMinX(),(float)evBox.getMinY(),(float)evBox.getMaxX(),(float)evBox.getMaxY(),al(GREEN,(int)(0x22+0x26*pulse)));
         G.setColor(!known?GREY:ev?GREEN:c(0xFF2F4A44)); font(H*0.088f,true);
-        text("EV",(float)evBox.getCenterX(),H*0.152f,1);
+        num("EV",(float)evBox.getCenterX(),H*0.152f,1);
         // steering
         float deg=g(STEER);
         G.setColor(h(STEER)?WHITE:GREY); font(H*0.0958f,true);
-        text(h(STEER)?fmt(deg,0):"--",W*0.655f,H*0.1625f,1);
+        num(h(STEER)?fmt(deg,0):"--",W*0.655f,H*0.1625f,1);
         AffineTransform old=G.getTransform();
         G.rotate(Math.toRadians(h(STEER)?deg:0),dialCx,dialCy);
         G.setColor(h(STEER)?CYAN:GREY); G.setStroke(new BasicStroke(dialR*0.17f));
@@ -313,9 +355,10 @@ public class Preview {
             Color cc=!ok?GREY:bad?AMBER:WHITE;
             if(bad) rectF((float)b.getMinX(),(float)b.getMinY(),(float)b.getMaxX(),(float)b.getMaxY(),al(AMBER,(int)(0x14+0x1C*pulse)));
             G.setColor(cc); font(H*0.070f,true);
-            String num=ok?fmt(psi,1):"--";
-            float nx=(float)b.getMinX()+W*0.012f, ny=(float)b.getMaxY()-H*0.018f, nw=tw(num);
-            text(num,nx,ny,0);
+            String val=ok?fmt(psi,1):"--";
+            float nx=(float)b.getMinX()+W*0.012f, ny=(float)b.getMaxY()-H*0.018f;
+            float nw=numWidth(val,G.getFont().getSize2D());
+            num(val,nx,ny,0);
             G.setColor(GREY); font(H*0.040f,false); text("PSI",nx+nw+W*0.012f,ny,0);
             G.setColor(!ok?GREY:bad?AMBER:GREEN);
             float rr=H*0.013f;
@@ -339,7 +382,7 @@ public class Preview {
         float lx=gCx+gR+W*0.018f;
         G.setColor(GREY); font(H*0.036f,false); text(cjk?"G 最大":"PEAK G",lx,gCy-H*0.010f,0);
         G.setColor(gok?CYAN:GREY); font(H*0.052f,true);
-        text(gok?fmt(maxG,2):"--",lx,gCy+H*0.052f,0);
+        num(gok?fmt(maxG,2):"--",lx,gCy+H*0.052f,0);
         // pedals
         float m=(pedalL+pedalR)*0.5f, half=(pedalR-pedalL)*0.5f-3f;
         float brk=h(BRAKE)?Math.max(0,Math.min(1,g(BRAKE)/BRAKE_FULL)):0f;
@@ -351,7 +394,7 @@ public class Preview {
         drawHeading();
         // speed
         G.setColor(h(SPEED)?WHITE:GREY); font(H*0.145f,true);
-        text(h(SPEED)?fmt(g(SPEED),0):"--",W*0.80f,H*0.935f,1);
+        num(h(SPEED)?fmt(g(SPEED),0):"--",W*0.80f,H*0.935f,1);
     }
 
     static void drawHeading(){
@@ -394,6 +437,13 @@ public class Preview {
     public static void main(String[] a) throws Exception {
         String mode = a.length>0?a[0]:"normal";
         cjk = !(a.length>1 && a[1].equals("en"));
+        String fontPath = a.length>2 ? a[2] : null;
+        if(fontPath!=null && new File(fontPath).isFile()){
+            numFont=Font.createFont(Font.TRUETYPE_FONT,new File(fontPath));
+            measureCells(numFont);
+        } else {
+            measureCells(new Font("monospaced",Font.PLAIN,100));
+        }
         layout();
         if(mode.equals("warn")){
             pulse=1f; peak=0.99f; maxG=0.94f; gearFlash=false;
@@ -420,7 +470,8 @@ public class Preview {
         G.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         G.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL,RenderingHints.VALUE_STROKE_PURE);
         drawStatic(); drawLive();
-        String name="dash-"+mode+(cjk?"":"-en")+".png";
+        String tag = fontPath==null?"":"-"+new File(fontPath).getName().replace(".ttf","");
+        String name="dash-"+mode+tag+(cjk?"":"-en")+".png";
         ImageIO.write(img,"png",new File(name));
         System.out.println("wrote "+name);
     }
