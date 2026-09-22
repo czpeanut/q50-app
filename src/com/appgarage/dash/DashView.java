@@ -74,6 +74,10 @@ public class DashView extends View {
     private static final float COOLANT_MIN = 40f, COOLANT_MAX = 120f;
     private static final float COOLANT_COLD = 60f, COOLANT_WARN = 105f;
     private static final float TPMS_LOW = 30f, TPMS_HIGH = 44f;
+    // A TPMS channel reads a flat zero until its wheel sensor has been heard from, which is
+    // not the same thing as a flat tyre and must never be alarmed as one.
+    private static final float TPMS_PRESENT = 1f;
+    private static final float G_ALERT = 0.60f;
     private static final float STEER_FULL = 390f;   // measured full lock
     private static final float BRAKE_FULL = 90f;    // type 24 declares max 90
     // Type 23 declares a maximum of 1000 but peaked at 39.25 over a drive with ordinary
@@ -101,6 +105,7 @@ public class DashView extends View {
     private long t0, lastFrame;
     private float peak, peakVel;
     private long peakHold;
+    private boolean rpmSeen;          // has type 13 ever left zero this session
     private int lastGear = -999;
     private long gearFlash;
     private final float[] trailX = new float[TRAIL], trailY = new float[TRAIL];
@@ -124,7 +129,7 @@ public class DashView extends View {
     private float W, H;
     private float rpmX, rpmY0, rpmY1, barW, cooX;
     private float carCx, carCy, carW, carH;
-    private float dialCx, dialCy, dialR;
+    private final RectF statusBox = new RectF();
     private float gCx, gCy, gR;
     private final RectF[] tyreBox = new RectF[4];
     private final float[] tyreDotX = new float[4], tyreDotY = new float[4];
@@ -188,9 +193,10 @@ public class DashView extends View {
         // The steering readout sits beside its own dial rather than above the car, which
         // keeps the whole centre column free for the heading arrow to rise into. The two
         // belong together anyway.
-        dialR = H * 0.0833f;
-        dialCx = W * 0.80f;
-        dialCy = H * 0.1083f;
+        // The steering dial is gone. It duplicated the heading arrow, which already shows
+        // the wheel, and the corner is worth more as somewhere for the car to say what is
+        // wrong. The steering figure stays; only the dial went.
+        statusBox.set(W * 0.7125f, H * 0.0583f, W * 0.885f, H * 0.1833f);   // clear of 水溫
 
         // the supplied drawing is taller than it is wide, so height is what limits it
         carW = W * 0.255f;
@@ -243,6 +249,7 @@ public class DashView extends View {
         drawEv(c, pulse);
         drawSteering(c);
         drawTyres(c, pulse);
+        drawStatus(c, pulse);
         drawFriction(c);
         drawPedals(c);
         drawHeading(c);
@@ -267,7 +274,7 @@ public class DashView extends View {
 
         float baseX = carCx, baseY = carCy - carH * 0.56f;
         float len = carH * (0.17f + 0.14f * spd);      // short at a standstill, long at speed
-        float tipX = baseX + t * carW * 0.60f;
+        float tipX = baseX + t * carW * 0.50f;
         float tipY = baseY - len;
         float ctrlX = baseX + t * carW * 0.16f;
         float ctrlY = baseY - len * 0.55f;
@@ -325,6 +332,11 @@ public class DashView extends View {
             if (peak < frac) { peak = frac; peakVel = 0f; }
             if (peak < 0f) peak = 0f;
         }
+
+        // Type 13 stayed at 0.000 for an entire warm drive, so "engine stopped" and "signal
+        // dead" are indistinguishable until it is seen to move at least once. Until then the
+        // EV badge has no evidence to stand on and says so by staying dim.
+        if (h(RPM) && v[RPM] > EV_RPM) rpmSeen = true;
 
         int gear = h(GEAR) ? (int) (v[GEAR] + 0.5f) : -999;
         if (gear != lastGear) { lastGear = gear; gearFlash = now + 320; }
@@ -490,7 +502,7 @@ public class DashView extends View {
      * engine standing still while the car is moving is the whole of the available evidence.
      */
     private void drawEv(Canvas c, float pulse) {
-        boolean known = h(RPM) && h(SPEED);
+        boolean known = h(RPM) && h(SPEED) && rpmSeen;
         boolean moving = known && d[SPEED] > EV_KMH;
         boolean engineOff = known && d[RPM] < EV_RPM;
         boolean ev = moving && engineOff;
@@ -508,28 +520,104 @@ public class DashView extends View {
     private void drawSteering(Canvas c) {
         float deg = g(STEER);                       // degrees directly, right positive
         int n = h(STEER) ? fmt(deg, 0) : dashes();
-        drawNum(c, n, W * 0.655f, H * 0.1625f, 1, H * 0.0958f, h(STEER) ? WHITE : GREY);
+        drawNum(c, n, W * 0.63f, H * 0.1625f, 1, H * 0.082f, h(STEER) ? WHITE : GREY);
+    }
 
-        c.save();
-        c.rotate(h(STEER) ? deg : 0f, dialCx, dialCy);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(dialR * 0.17f);
-        p.setColor(h(STEER) ? CYAN : GREY);
-        c.drawCircle(dialCx, dialCy, dialR * 0.60f, p);
-        p.setStrokeWidth(dialR * 0.13f);
-        c.drawLine(dialCx - dialR * 0.60f, dialCy, dialCx + dialR * 0.60f, dialCy, p);
-        c.drawLine(dialCx, dialCy, dialCx, dialCy + dialR * 0.60f, p);
-        c.restore();
+    /**
+     * What the car wants to say, in the corner the steering dial used to occupy. One line for
+     * the condition and one for its detail, worst first, so a glance is enough.
+     *
+     * A tyre still acquiring its sensor is reported as such and never as a pressure fault:
+     * those two states look identical in the raw value and mean opposite things.
+     */
+    private void drawStatus(Canvas c, float pulse) {
+        String head, detail;
+        int col;
+        int worst = -1;
+        boolean anyAcquiring = false;
 
-        if (h(STEER)) {                             // how far round, and which way
-            float frac = deg / STEER_FULL;
-            if (frac < -1f) frac = -1f; else if (frac > 1f) frac = 1f;
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(3.4f);
-            p.setColor(CYAN);
-            r.set(dialCx - dialR, dialCy - dialR, dialCx + dialR, dialCy + dialR);
-            c.drawArc(r, -90f, frac * 180f, false, p);
+        if (h(COOLANT) && d[COOLANT] >= COOLANT_WARN) {
+            head = cjk ? "水溫過高" : "COOLANT HOT";
+            detail = fmtToStr(d[COOLANT], 0) + " C";
+            col = RED;
+        } else {
+            for (int i = 0; i < 4; i++) {
+                int t = tyreType[i];
+                if (!h(t)) continue;
+                if (d[t] < TPMS_PRESENT) { anyAcquiring = true; continue; }
+                if (d[t] < TPMS_LOW || d[t] > TPMS_HIGH) { worst = i; break; }
+            }
+            float gm = gMagnitude();
+            if (worst >= 0) {
+                boolean low = d[tyreType[worst]] < TPMS_LOW;
+                head = cjk ? (low ? "胎壓過低" : "胎壓過高") : (low ? "TYRE LOW" : "TYRE HIGH");
+                detail = wheelShort(worst) + " " + fmtToStr(d[tyreType[worst]], 1);
+                col = AMBER;
+            } else if (gm >= G_ALERT) {
+                head = cjk ? "G 值偏高" : "HIGH G";
+                detail = fmtToStr(gm, 2) + " g";
+                col = AMBER;
+            } else if (h(COOLANT) && d[COOLANT] < COOLANT_COLD) {
+                head = cjk ? "暖車中" : "WARMING";
+                detail = fmtToStr(d[COOLANT], 0) + " C";
+                col = AMBER;
+            } else if (anyAcquiring) {
+                head = cjk ? "胎壓偵測中" : "TPMS WAIT";
+                detail = cjk ? "等待感測器" : "no sensor yet";
+                col = GREY;
+            } else {
+                head = cjk ? "狀態正常" : "ALL OK";
+                detail = "";
+                col = GREEN;
+            }
         }
+
+        if (col == RED || col == AMBER) {
+            p.setStyle(Paint.Style.FILL);
+            p.setColor((col & 0x00FFFFFF) | ((int) (0x16 + 0x22 * pulse) << 24));
+            c.drawRect(statusBox, p);
+        }
+        // messages vary in length and some are longer in English than in Chinese, so the
+        // size is fitted to the panel rather than assumed to fit
+        float room = statusBox.width() - W * 0.016f;
+        pText.setTextAlign(Paint.Align.CENTER);
+        pText.setColor(col);
+        pText.setTextSize(fitSize(head, room, H * 0.056f));
+        c.drawText(head, statusBox.centerX(), H * 0.128f, pText);
+        if (detail.length() > 0) {
+            pText.setColor(GREY);
+            pText.setTextSize(fitSize(detail, room, H * 0.036f));
+            c.drawText(detail, statusBox.centerX(), H * 0.171f, pText);
+        }
+    }
+
+    /** largest size at or below want that keeps the string inside room */
+    private float fitSize(String t, float room, float want) {
+        pText.setTextSize(want);
+        float w = pText.measureText(t);
+        if (w <= room || w <= 0f) return want;
+        float scaled = want * room / w;
+        return scaled < want * 0.55f ? want * 0.55f : scaled;
+    }
+
+    private float gMagnitude() {
+        if (!h(G_LAT) && !h(G_LONG)) return 0f;
+        float a = d[G_LAT], b = d[G_LONG];
+        return (float) Math.sqrt(a * a + b * b);
+    }
+
+    private String wheelShort(int i) {
+        if (cjk) {
+            switch (i) { case 0: return "左前"; case 1: return "右前";
+                         case 2: return "左後"; default: return "右後"; }
+        }
+        switch (i) { case 0: return "FL"; case 1: return "FR"; case 2: return "RL"; default: return "RR"; }
+    }
+
+    /** the status panel needs real Strings, and it changes rarely enough for that to be fine */
+    private String fmtToStr(float v, int dec) {
+        int n = fmt(v, dec);
+        return new String(buf, 0, n);
     }
 
     private void drawTyres(Canvas c, float pulse) {
@@ -538,25 +626,33 @@ public class DashView extends View {
             int t = tyreType[i];
             boolean ok = h(t);
             float psi = d[t];
-            boolean bad = ok && (psi < TPMS_LOW || psi > TPMS_HIGH);
-            int col = !ok ? GREY : bad ? AMBER : WHITE;
+            boolean acquiring = ok && psi < TPMS_PRESENT;     // sensor not heard from yet
+            boolean bad = ok && !acquiring && (psi < TPMS_LOW || psi > TPMS_HIGH);
+            int col = (!ok || acquiring) ? GREY : bad ? AMBER : WHITE;
 
             if (bad) {                              // a soft tyre must not sit quietly
                 p.setStyle(Paint.Style.FILL);
                 p.setColor((AMBER & 0x00FFFFFF) | ((int) (0x14 + 0x1C * pulse) << 24));
                 c.drawRect(b, p);
             }
-            int n = ok ? fmt(psi, 1) : dashes();
             float nx = b.left + W * 0.012f, ny = b.bottom - H * 0.018f;
-            float nw = numWidth(n, H * 0.070f);
-            drawNum(c, n, nx, ny, 0, H * 0.070f, col);
-            pText.setTextSize(H * 0.040f);
-            pText.setTextAlign(Paint.Align.LEFT);
-            pText.setColor(GREY);
-            c.drawText("PSI", nx + nw + W * 0.012f, ny, pText);
+            if (acquiring) {
+                pText.setTextSize(H * 0.050f);
+                pText.setTextAlign(Paint.Align.LEFT);
+                pText.setColor(GREY);
+                c.drawText(cjk ? "偵測中" : "ACQUIRING", nx, ny, pText);
+            } else {
+                int n = ok ? fmt(psi, 1) : dashes();
+                float nw = numWidth(n, H * 0.070f);
+                drawNum(c, n, nx, ny, 0, H * 0.070f, col);
+                pText.setTextSize(H * 0.040f);
+                pText.setTextAlign(Paint.Align.LEFT);
+                pText.setColor(GREY);
+                c.drawText("PSI", nx + nw + W * 0.012f, ny, pText);
+            }
 
             p.setStyle(Paint.Style.FILL);
-            p.setColor(!ok ? GREY : bad ? AMBER : GREEN);
+            p.setColor((!ok || acquiring) ? GREY : bad ? AMBER : GREEN);
             c.drawCircle(b.right - W * 0.018f, b.top + H * 0.030f, H * 0.013f, p);
         }
     }
@@ -679,25 +775,10 @@ public class DashView extends View {
         label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), H * 0.0458f);
         panel(c, evBox.left, evBox.top, evBox.right, evBox.bottom);
         label(c, cjk ? "純電" : "ELECTRIC", evBox.centerX(), H * 0.0458f);
-        label(c, cjk ? "轉向角" : "STEERING", W * 0.655f, H * 0.0458f);
+        label(c, cjk ? "轉向角" : "STEERING", W * 0.63f, H * 0.0458f);
 
-        p.setStyle(Paint.Style.STROKE);
-        p.setColor(0x223FD2FF);
-        p.setStrokeWidth(5f);
-        c.drawCircle(dialCx, dialCy, dialR, p);      // soft ring under the hairline
-        p.setColor(CYAN_DIM);
-        p.setStrokeWidth(1.4f);
-        c.drawCircle(dialCx, dialCy, dialR, p);
-        for (int i = 0; i < 24; i++) {
-            double a = Math.PI * 2 * i / 24.0;
-            boolean major = (i % 6) == 0;
-            float r0 = major ? 0.76f : 0.86f;
-            p.setColor(major ? CYAN : CYAN_DIM);
-            c.drawLine(dialCx + (float) Math.cos(a) * dialR * r0,
-                       dialCy + (float) Math.sin(a) * dialR * r0,
-                       dialCx + (float) Math.cos(a) * dialR * 0.96f,
-                       dialCy + (float) Math.sin(a) * dialR * 0.96f, p);
-        }
+        panel(c, statusBox.left, statusBox.top, statusBox.right, statusBox.bottom);
+        label(c, cjk ? "狀態" : "STATUS", statusBox.centerX(), H * 0.0458f);
 
         for (int i = 0; i < 4; i++) {
             RectF b = tyreBox[i];
