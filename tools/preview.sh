@@ -7,6 +7,11 @@
 #
 # Keep it in step with DashView by hand -- it mirrors the layout maths, not the code.
 #
+# It models layout, not Paint state. Android's drawBitmap multiplies by the paint's alpha and
+# Java2D's drawImage takes no paint at all, so a stale paint colour is invisible here and very
+# visible on the unit. That is how the car artwork came to be drawn at four percent opacity
+# while every render looked correct.
+#
 # It picks up assets/car.png the same way the app does, so this is also how to check your own
 # car drawing before taking it to the vehicle.
 #

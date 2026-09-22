@@ -14,12 +14,25 @@ system's state of charge is **not exposed through the Android Sensor API** on th
 though the factory InTouch energy-flow screen clearly has the data. It presumably stays in the
 Linux/AV layer.
 
-Type 26 `VS_ID_REGENERATION`, the only powertrain-energy signal in the list, turned out to hold
-a flat zero across a full drive. Type 13 `ENGINE_RPM` is dead too, which closes the last
-indirect route: electric drive cannot be inferred from an engine speed that never reports.
+Type 26 `VS_ID_REGENERATION`, the signal actually named for it, holds a flat zero across a full
+drive. Type 13 `ENGINE_RPM` is dead too.
 
-**There is no hybrid state on this bus at all.** The nearest thing the car does publish is type
-12 `EFFECTIVE_TORQUE`, which moves with load but says nothing about where the power came from.
+**But the hybrid energy flow is on this bus, under another name.** Type 12
+`VS_ID_EFFECTIVE_TORQUE` is the **electric motor's** torque, and it is **signed**:
+
+| Sign | Meaning |
+|---|---|
+| **positive** | regenerative torque — the motor is acting as a generator, charging |
+| **negative** | drive torque — the motor is propelling the car |
+
+Confirmed on-car against the factory energy display, which agrees. This was missed twice over:
+once by reading the name as engine torque, and once by treating the −400 it holds at a
+standstill as a placeholder. It is not a placeholder — it is the creep torque the motor holds
+in D, which is why it is negative, and why it is exactly the value a stationary car in gear
+should show.
+
+What is still missing is state of charge. Torque says which way the energy is flowing and how
+hard, but nothing on this bus says how full the battery is.
 
 ## Confirmed on-car (measured, not inferred)
 
@@ -27,7 +40,7 @@ indirect route: electric drive cannot be inferred from an engine speed that neve
 |---|---|
 | 17 `VEHICLE_SPEED` | **raw value is km/h directly.** The original notes were right; the `max=655340` reading was not a clue to anything. |
 | 25 `STEERING_ANGLE` | **raw value is degrees directly**, **signed: right positive, left negative**, roughly **±390 at full lock**, carrying one decimal. Note this is *not* the 0.1-degree unit the `resolution` field implies — 390 raw is 390°, matching the quick DAS rack. Fully calibrated; ready to use as-is. |
-| 12 `EFFECTIVE_TORQUE` | **live and wide-ranging** — −400 (rest placeholder) to 1647.5 over one 578 s drive. The only powertrain signal on this car that genuinely moves. Unit unknown, so it is displayed uncalibrated. |
+| 12 `EFFECTIVE_TORQUE` | **electric motor torque, signed.** Positive regenerates, negative drives. −400 at a standstill in D is creep torque, not a placeholder; +1647.5 seen under braking. Unit unknown, so the scale stays uncalibrated, and the drive-side range is still unmeasured — nothing yet has been recorded under full throttle. |
 | 26 `REGENERATION` | **flat zero.** Held 0.000 for min, max and current across a full 578 s drive with braking, having previously looked alive only because a constant zero counts events like any other value. Nothing in the Sensor API carries hybrid energy flow. |
 | 13 `ENGINE_RPM` | **dead.** Stayed at 0.000 across repeated drives on a warm car, including a whole trip watched by an indicator that would have lit the moment it left zero. It never did. Nothing can be built on it, and the electric-drive inference that depended on it has been removed. |
 | 23 `ACCELERATOR_PEDAL_POSITION` | peaked at **39.25** under ordinary throttle, which reads as a percentage despite the declared maximum of 1000. |
@@ -101,7 +114,7 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 
 | Type | Name | max | res | Notes |
 |---|---|---|---|---|
-| 12 | `VS_ID_EFFECTIVE_TORQUE` | 879.0 | 1.0 | **live, −400 at rest to 1647.5 driving.** Unit unknown; max field is a placeholder |
+| 12 | `VS_ID_EFFECTIVE_TORQUE` | 879.0 | 1.0 | **motor torque, signed: + regen, − drive.** Unit unknown; max field is a placeholder |
 | 13 | `VS_ID_ENGINE_RPM` | 879.0 | 1.0 | **dead — 0.000 across repeated warm drives** |
 | 14 | `VS_ID_ENGINE_COOLANT_TEMPERATURE` | 214.0 | 1.0 | °C direct |
 | 15 | `VS_ID_ENGINE_OIL_TEMPERATURE` | 205.0 | 1.0 | reported −50 at rest on this car |
@@ -115,7 +128,7 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 | 23 | `VS_ID_ACCELERATOR_PEDAL_POSITION` | 1000.0 | 0.001 | **pedal, not throttle** — distinct on a hybrid |
 | 24 | `VS_ID_BRAKE_PEDAL_POSITION` | 90.0 | 1.0 | **live**, 10–68 observed against a declared max of 90 |
 | 25 | `VS_ID_STEERING_ANGLE` | 9000.0 | 0.1 | **confirmed: degrees, right +, left −, ±390 full lock, 1 decimal** |
-| 26 | `VS_ID_REGENERATION` | 63500.0 | 1.0 | **dead — flat 0.000 across a full drive with braking** |
+| 26 | `VS_ID_REGENERATION` | 63500.0 | 1.0 | **dead** — flat 0.000 across a full drive. What it is named for lives in type 12 |
 | 27 | `VS_ID_ILLUMI` | −0.0 | −0.0 | enum, day/night illumination |
 | 28 | `VS_ID_ECO_MODE` | −0.0 | −0.0 | **dead — never delivers an event** |
 | 29 | `VS_ID_FUEL_CONSUMPTION_HISTORY` | 200000.0 | 1.0 | |

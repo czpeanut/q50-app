@@ -64,13 +64,19 @@ public class DashView extends View {
             TP_FR = 36, TP_FL = 37, TP_RR = 38, TP_RL = 39;
 
     // ---- calibration ----
-    // The left column shows torque, not rpm. Over a 578 s drive type 13 never left 0.000
-    // while type 12 ranged to 1647.5, so torque is the powertrain signal this car actually
-    // publishes. The scale is NOT calibrated -- the unit is unknown -- so the column is drawn
-    // in amber to say so rather than pretending to be a engineering value.
-    private static final float TORQUE_MAX = 1800f;      // just above the highest yet observed
-    private static final float TORQUE_INVALID = -300f;  // rest placeholder sits at -400
-    private static final float LOAD_AMBER = 0.84f, LOAD_RED = 0.94f;
+    // Type 12 is the ELECTRIC MOTOR's torque, and it is signed: positive is regenerative
+    // torque, negative is drive torque. Confirmed on-car against the factory energy display.
+    //
+    // This overturns two earlier readings. The -400 sitting there at a standstill is not a
+    // placeholder, it is the creep torque the motor holds in D, and treating anything below
+    // -300 as "no data" was discarding every drive reading the car produced. And the hybrid
+    // energy flow is not missing after all -- type 26 REGENERATION is dead, but the thing it
+    // was named for is right here under a different name.
+    //
+    // The scale is still uncalibrated: the unit is unknown and the range is symmetric only
+    // because nothing yet proves otherwise. Highest seen so far is +1647.5 regenerating.
+    private static final float TORQUE_FULL = 1800f;
+    private static final float TORQUE_DEAD = 18f;       // inside this, call it neutral
     private static final float COOLANT_MIN = 40f, COOLANT_MAX = 120f;
     private static final float COOLANT_COLD = 60f, COOLANT_WARN = 105f;
     private static final float TPMS_LOW = 30f, TPMS_HIGH = 44f;
@@ -102,8 +108,7 @@ public class DashView extends View {
 
     // ---- animation state ----
     private long t0, lastFrame;
-    private float peak, peakVel;
-    private long peakHold;
+    private float peakRegen, peakDrive;   // trip peaks, one for each direction
     private int lastGear = -999;
     private long gearFlash;
     private final float[] trailX = new float[TRAIL], trailY = new float[TRAIL];
@@ -170,7 +175,7 @@ public class DashView extends View {
 
     /** representative values so the layout can be judged off-car */
     public void seedDemo() {
-        setValue(TORQUE, 980f); setValue(RPM, 0f); setValue(COOLANT, 88f);
+        setValue(TORQUE, -620f); setValue(RPM, 0f); setValue(COOLANT, 88f);
         setValue(SPEED, 64f); setValue(GEAR, 4f); setValue(ACCEL, 34f); setValue(BRAKE, 0f); setValue(STEER, 12f);
         setValue(G_LAT, 0.32f); setValue(G_LONG, -0.18f);
         setValue(TP_FL, 39.2f); setValue(TP_FR, 39.2f);
@@ -248,7 +253,6 @@ public class DashView extends View {
         else drawStatic(c);                        // out of memory: pay it every frame
 
         float pulse = 0.55f + 0.45f * (float) Math.sin(now * 0.009);
-        drawLoadBand(c, now);
         drawTorque(c, now);
         drawCoolant(c, pulse);
         drawGear(c, now);
@@ -328,15 +332,10 @@ public class DashView extends View {
         for (int i = 0; i < 4; i++) d[tyreType[i]] = v[tyreType[i]];   // pressures never jump
         d[GEAR] = v[GEAR];
 
-        // tachometer peak-hold: ride the peak, hold briefly, then fall away
-        float frac = loadFrac();
-        if (frac >= peak) { peak = frac; peakHold = now + 700; peakVel = 0f; }
-        else if (now > peakHold) {
-            peakVel += dt * 0.55f;
-            peak -= peakVel * dt;
-            if (peak < frac) { peak = frac; peakVel = 0f; }
-            if (peak < 0f) peak = 0f;
-        }
+        // trip peaks, one per direction: the most it has regenerated and the most it has driven
+        float frac = torqueFrac();
+        if (frac > peakRegen) peakRegen = frac;
+        if (frac < -peakDrive) peakDrive = -frac;
 
         int gear = h(GEAR) ? (int) (v[GEAR] + 0.5f) : -999;
         if (gear != lastGear) { lastGear = gear; gearFlash = now + 320; }
@@ -359,80 +358,82 @@ public class DashView extends View {
         d[t] += (v[t] - d[t]) * a;
     }
 
-    /** whether type 12 is carrying a real reading rather than its rest placeholder */
-    private boolean torqueValid() { return h(TORQUE) && d[TORQUE] > TORQUE_INVALID; }
-
-    /** 0..1 of the torque scale, overridden by the launch sweep while it runs */
-    private float loadFrac() {
-        float frac = torqueValid() ? d[TORQUE] / TORQUE_MAX : 0f;
-        if (frac < 0) frac = 0; else if (frac > 1) frac = 1;
+    /** signed -1..1 of the torque scale, overridden by the launch sweep while it runs */
+    private float torqueFrac() {
+        float frac = h(TORQUE) ? d[TORQUE] / TORQUE_FULL : 0f;
+        if (frac < -1f) frac = -1f; else if (frac > 1f) frac = 1f;
         long age = System.currentTimeMillis() - t0;
         if (age < SWEEP_MS) {
-            float u = age / (float) SWEEP_MS;
-            float sweep = u < 0.5f ? u * 2f : (1f - u) * 2f;
-            sweep = sweep * sweep * (3f - 2f * sweep);          // smoothstep
-            if (sweep > frac) frac = sweep;
+            // one full cycle either side of zero, which shows the gauge is bipolar before the
+            // car has said anything
+            float sweep = (float) Math.sin(age / (double) SWEEP_MS * Math.PI * 2.0);
+            if (Math.abs(sweep) > Math.abs(frac)) frac = sweep;
         }
         return frac;
     }
 
     // ------------------------------------------------------------------ live parts
 
-    /** high-load band. It cannot be a shift light: rpm is not reliably published here. */
-    private void drawLoadBand(Canvas c, long now) {
-        float frac = loadFrac();
-        if (frac < LOAD_AMBER) return;
-        int col;
-        if (frac >= LOAD_RED) {
-            boolean on = ((now / 110) & 1L) == 0L;               // hard flash at the limit
-            if (!on) return;
-            col = RED;
-        } else {
-            col = AMBER;
-        }
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(col);
-        c.drawRect(0, 0, W, H * 0.009f, p);                  // thin enough to clear the
-        p.setColor((col & 0x00FFFFFF) | 0x33000000);         // header labels beneath it
-        c.drawRect(0, H * 0.009f, W, H * 0.017f, p);
-    }
-
+    /**
+     * Motor torque, drawn as a bipolar column with zero in the middle: regenerative torque
+     * climbs in green, drive torque descends in amber. A single-ended bar would have been a
+     * lie about a signal that spends its life on both sides of zero.
+     */
     private void drawTorque(Canvas c, long now) {
-        final int N = 24;
+        final int HALF = 12;                        // segments each side of zero
         float inner = barW * 0.18f;
         float x0 = rpmX + inner, x1 = rpmX + barW - inner;
         float span = (rpmY1 - rpmY0) - inner * 2f;
-        float seg = span / N;
-        float frac = loadFrac();
-        int on = (int) (frac * N + 0.5f);
-        int amberFrom = (int) (LOAD_AMBER * N), redFrom = (int) (LOAD_RED * N);
+        float mid = rpmY0 + inner + span * 0.5f;
+        float seg = span * 0.5f / HALF;
+
+        float frac = torqueFrac();
+        int onUp = frac > 0f ? (int) (frac * HALF + 0.5f) : 0;
+        int onDn = frac < 0f ? (int) (-frac * HALF + 0.5f) : 0;
 
         p.setStyle(Paint.Style.FILL);
-        for (int i = 0; i < N; i++) {
-            float t = rpmY1 - inner - (i + 1) * seg;
-            float top = t + seg * 0.10f, bot = t + seg * 0.82f;
-            boolean lit = i < on;
-            int col = i >= redFrom ? RED : i >= amberFrom ? 0xFFFFD060 : AMBER;
-            if (lit) {
-                p.setColor((col & 0x00FFFFFF) | 0x55000000);    // bloom pass
-                c.drawRect(x0 - 2.5f, top - 2.5f, x1 + 2.5f, bot + 2.5f, p);
-                p.setColor(col);
-            } else {
-                p.setColor(i >= redFrom ? 0xFF3A1414 : i >= amberFrom ? 0xFF3A3014 : 0xFF2A2312);
-            }
-            c.drawRect(x0, top, x1, bot, p);
+        for (int i = 0; i < HALF; i++) {
+            float pad = seg * 0.14f;
+            segment(c, x0, mid - (i + 1) * seg + pad, x1, mid - i * seg - pad, i < onUp, GREEN);
+            segment(c, x0, mid + i * seg + pad, x1, mid + (i + 1) * seg - pad, i < onDn, AMBER);
         }
 
-        // peak-hold marker
-        if (peak > 0.02f) {
-            float y = rpmY1 - inner - peak * span;
-            p.setColor(WHITE);
-            c.drawRect(rpmX - 2f, y - 1.5f, rpmX + barW + 2f, y + 1.5f, p);
-        }
+        // zero line, so the middle is unmistakable at a glance
+        p.setColor(0xCCEAF6FF);
+        c.drawRect(rpmX - 1f, mid - 1.2f, rpmX + barW + 1f, mid + 1.2f, p);
 
-        int n = torqueValid() ? fmt(d[TORQUE], 0) : dashes();
+        if (peakRegen > 0.03f) peakMark(c, mid - peakRegen * span * 0.5f, GREEN);
+        if (peakDrive > 0.03f) peakMark(c, mid + peakDrive * span * 0.5f, AMBER);
+
+        boolean regen = h(TORQUE) && d[TORQUE] > TORQUE_DEAD;
+        boolean drive = h(TORQUE) && d[TORQUE] < -TORQUE_DEAD;
+        int n = h(TORQUE) ? fmt(d[TORQUE], 0) : dashes();
         drawNum(c, n, rpmX, H * 0.1667f, 0, H * 0.062f,
-                !torqueValid() ? GREY : frac >= LOAD_RED ? RED : AMBER);
+                !h(TORQUE) ? GREY : regen ? GREEN : drive ? AMBER : WHITE);
+
+        if (regen || drive) {
+            pText.setColor(regen ? GREEN : AMBER);
+            pText.setTextSize(H * 0.038f);
+            pText.setTextAlign(Paint.Align.LEFT);
+            c.drawText(regen ? (cjk ? "回充" : "REGEN") : (cjk ? "輸出" : "DRIVE"),
+                    rpmX, H * 0.208f, pText);
+        }
+    }
+
+    private void segment(Canvas c, float l, float t, float rr, float b, boolean lit, int col) {
+        if (lit) {
+            p.setColor((col & 0x00FFFFFF) | 0x55000000);        // bloom
+            c.drawRect(l - 2.5f, t - 2.5f, rr + 2.5f, b + 2.5f, p);
+            p.setColor(col);
+        } else {
+            p.setColor((col & 0x00FFFFFF) | 0x1E000000);
+        }
+        c.drawRect(l, t, rr, b, p);
+    }
+
+    private void peakMark(Canvas c, float y, int col) {
+        p.setColor(col);
+        c.drawRect(rpmX - 2f, y - 1.5f, rpmX + barW + 2f, y + 1.5f, p);
     }
 
     private void drawCoolant(Canvas c, float pulse) {
@@ -739,14 +740,15 @@ public class DashView extends View {
         drawCar(c);
 
         // both scales face inward: against the screen edge they were half off the panel
-        columnScale(c, rpmX + barW, false, 6);      // 0..1800 torque, a tick per 300
+        columnScale(c, rpmX + barW, false, 6);      // -1800..+1800, a tick per 300
         columnScale(c, cooX, true, 4);              // 40..120 C, a tick per 20
         panel(c, rpmX, rpmY0, rpmX + barW, rpmY1);
         panel(c, cooX, rpmY0, cooX + barW, rpmY1);
         pText.setColor(WHITE);
         pText.setTextSize(H * 0.071f);
         pText.setTextAlign(Paint.Align.LEFT);
-        c.drawText(cjk ? "扭力" : "TORQUE", rpmX, H * 0.0833f, pText);
+        pText.setTextSize(H * 0.058f);               // 4 characters, clear of the gear box
+        c.drawText(cjk ? "馬達扭力" : "MOTOR", rpmX, H * 0.0833f, pText);
         pText.setTextAlign(Paint.Align.RIGHT);
         c.drawText(cjk ? "水溫" : "COOLANT", cooX + barW, H * 0.0833f, pText);
 
@@ -815,6 +817,12 @@ public class DashView extends View {
             float scale = Math.min(carW / sw, carH / sh);       // fit, preserving aspect
             float w = sw * scale, hgt = sh * scale;
             r.set(carCx - w * 0.5f, carCy - hgt * 0.5f, carCx + w * 0.5f, carCy + hgt * 0.5f);
+            // Opaque white, explicitly. drawBitmap multiplies by the paint's alpha, and the
+            // paint arrives here still carrying the last arc's 0x0A -- which drew the car at
+            // four percent, i.e. invisibly. The desktop preview could not catch this: Java2D's
+            // drawImage takes no paint, so there it always rendered at full strength.
+            p.setColor(0xFFFFFFFF);
+            p.setShader(null);
             p.setStyle(Paint.Style.FILL);
             p.setFilterBitmap(true);
             c.drawBitmap(art, null, r, p);
