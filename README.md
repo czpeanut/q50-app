@@ -11,7 +11,10 @@ The head unit's Android layer publishes the vehicle bus as ordinary Android `Sen
 the whole thing is a normal app reading `SensorManager`. Nothing is written to the bus; nothing in
 the factory firmware is modified.
 
-![the dashboard on the head unit](docs/dashboard.png)
+![the driving screen](docs/dashboard.png)
+
+<sub>Rendered at the head unit's real 800×480 by `tools/preview.sh`, which is how every layout change is
+checked before it goes anywhere near the car.</sub>
 
 ---
 
