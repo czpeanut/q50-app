@@ -45,7 +45,7 @@ public class SettingsActivity extends Activity implements View.OnClickListener {
         root.setPadding(28, 22, 28, 22);
 
         TextView title = new TextView(this);
-        title.setText("O.R.I.O.N.   設定 / SETTINGS");
+        title.setText("V.T.D.   設定 / SETTINGS");
         title.setTextSize(24);
         title.setTextColor(WHITE);
         root.addView(title, wrap());

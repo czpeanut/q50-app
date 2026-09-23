@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build O.R.I.O.N.: Java -> dex -> signed APK (minSdk 10, pure-Java, no native libs),
+# Build V.T.D.: Java -> dex -> signed APK (minSdk 10, pure-Java, no native libs),
 # then wrap it into a loadable .epk using the public OBU cert in keys/ (for the App Garage loader).
 set -euo pipefail
 cd "$(dirname "$0")"

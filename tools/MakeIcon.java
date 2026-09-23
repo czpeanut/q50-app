@@ -5,7 +5,7 @@ import java.io.File;
 import javax.imageio.ImageIO;
 
 /**
- * Generate res/drawable-nodpi/ic_launcher.png: the O.R.I.O.N. arrow.
+ * Generate res/drawable-nodpi/ic_launcher.png: the V.T.D. arrow.
  *
  * Kept as a generator rather than a checked-in drawing so the mark stays tied to the screen it
  * belongs to -- same cyan, same two-pass glow, same chamfer as the panels -- and can be

@@ -1,6 +1,8 @@
-# O.R.I.O.N.
+# V.T.D.
 
-<img src="docs/icon.png" width="88" align="right" alt="O.R.I.O.N. icon" />
+**Vehicle Telemetry Display**
+
+<img src="docs/icon.png" width="88" align="right" alt="V.T.D. icon" />
 
 A gauge dashboard for the **Infiniti Q50 3.5 Hybrid (V37)** that runs on the factory InTouch
 screen and reads the car's own CAN signals — **no OBD dongle, no Bluetooth, no phone**.
@@ -109,7 +111,7 @@ converts an ordinary light-on-black drawing into the keyed, tinted PNG the scree
 1. Format a USB stick as **FAT32** and put `dash.epk` in its **root**.
 2. Insert it, wait for "Loading all apps" to finish (up to a minute from cold).
 3. From the home screen press **right** once to reach **App Garage**.
-4. **Install Apps via USB** → **O.R.I.O.N.** → confirm. Do not pull the stick until it completes.
+4. **Install Apps via USB** → **V.T.D.** → confirm. Do not pull the stick until it completes.
 
 Self-built and released `.epk` files are signed differently and cannot replace each other — pick
 one and stay with it, or uninstall first. `keystore.ks` is generated on first build and is
@@ -138,6 +140,7 @@ deliberately not committed, so keep yours if you want your own rebuilds to insta
   `tools/MakeCarAsset.java` turns any ordinary light-on-black drawing into the keyed, tinted PNG
   the screen expects. Everything else here is either original or credited above.
 
-Not affiliated with Infiniti, Nissan, Ygomi or Airbiquity. "O.R.I.O.N." is just a name. Code is
+Not affiliated with Infiniti, Nissan, Ygomi or Airbiquity — "V.T.D." is this project's own
+name, not theirs. Code is
 MIT licensed (see [`LICENSE`](LICENSE)); the bundled font and artwork carry their own terms as
 noted above.
