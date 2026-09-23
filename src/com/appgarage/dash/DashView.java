@@ -64,18 +64,36 @@ public class DashView extends View {
             TP_FR = 36, TP_FL = 37, TP_RR = 38, TP_RL = 39;
 
     // ---- calibration ----
-    // Type 12 is the ELECTRIC MOTOR's torque, and it is signed: positive is regenerative
-    // torque, negative is drive torque. Confirmed on-car against the factory energy display.
+    // Type 12 is read as the ELECTRIC MOTOR's torque, signed: positive regenerates, negative
+    // drives. That reading came from a cross-check against the factory energy display and it
+    // still fits, but it is PROVISIONAL -- see the asymmetry below.
     //
-    // This overturns two earlier readings. The -400 sitting there at a standstill is not a
-    // placeholder, it is the creep torque the motor holds in D, and treating anything below
-    // -300 as "no data" was discarding every drive reading the car produced. And the hybrid
-    // energy flow is not missing after all -- type 26 REGENERATION is dead, but the thing it
-    // was named for is right here under a different name.
+    // Measured so far, on this car:
     //
-    // The scale is still uncalibrated: the unit is unknown and the range is symmetric only
-    // because nothing yet proves otherwise. Highest seen so far is +1647.5 regenerating.
-    private static final float TORQUE_FULL = 1800f;
+    //     stationary in D      -400          creep torque held against the brake
+    //     gentle acceleration  -200 .. -300  LESS drive torque than creep
+    //     accelerator released +1600         same figure whether or not the brake is applied
+    //     peak seen            +1647.5
+    //
+    // The middle row is the one that unsettles it: driving should not ask the motor for less
+    // than creep does. On a parallel hybrid it can, because above walking pace the engine
+    // carries the car and the motor barely contributes under light throttle -- so the figures
+    // are counter-intuitive rather than contradictory. Two things would settle it, and both
+    // are still unmeasured: what P and N read at a standstill (motor torque -> near zero,
+    // a fixed offset -> still -400), and what full throttle reads (motor torque -> far past
+    // -400).
+    //
+    // What the numbers do rule out is a plain offset. Shifting the scale by +400 to put the
+    // standstill at zero puts drive and regeneration on the SAME side, ordered standstill <
+    // accelerating < coasting, which is not a coherent physical quantity. The sign change is
+    // carrying real meaning.
+    //
+    // The unit is unknown, so the two ends are scaled independently, from what has actually
+    // been observed. A single symmetric +-1800 was wrong twice over: it let the regenerating
+    // half fill while the driving half never left the first three segments of twelve, which
+    // read as a broken gauge rather than as a small number.
+    private static final float TORQUE_REGEN_FULL = 1800f;   // +1647.5 observed
+    private static final float TORQUE_DRIVE_FULL = 500f;    // -400 observed; raise after WOT
     private static final float TORQUE_DEAD = 18f;       // inside this, call it neutral
     private static final float COOLANT_MIN = 40f, COOLANT_MAX = 120f;
     private static final float COOLANT_COLD = 60f, COOLANT_WARN = 105f;
@@ -175,7 +193,7 @@ public class DashView extends View {
 
     /** representative values so the layout can be judged off-car */
     public void seedDemo() {
-        setValue(TORQUE, -620f); setValue(RPM, 0f); setValue(COOLANT, 88f);
+        setValue(TORQUE, -280f); setValue(RPM, 0f); setValue(COOLANT, 88f);   // measured, light throttle
         setValue(SPEED, 64f); setValue(GEAR, 4f); setValue(ACCEL, 34f); setValue(BRAKE, 0f); setValue(STEER, 12f);
         setValue(G_LAT, 0.32f); setValue(G_LONG, -0.18f);
         setValue(TP_FL, 39.2f); setValue(TP_FR, 39.2f);
@@ -367,9 +385,14 @@ public class DashView extends View {
         d[t] += (v[t] - d[t]) * a;
     }
 
-    /** signed -1..1 of the torque scale, overridden by the launch sweep while it runs */
+    /**
+     * Signed -1..1 of the torque scale, overridden by the launch sweep while it runs. The two
+     * halves have different full-scale values, so this is a fraction of travel and never a
+     * figure to compare across the zero line.
+     */
     private float torqueFrac() {
-        float frac = h(TORQUE) ? d[TORQUE] / TORQUE_FULL : 0f;
+        float t = h(TORQUE) ? d[TORQUE] : 0f;
+        float frac = t >= 0f ? t / TORQUE_REGEN_FULL : t / TORQUE_DRIVE_FULL;
         if (frac < -1f) frac = -1f; else if (frac > 1f) frac = 1f;
         long age = System.currentTimeMillis() - t0;
         if (age < SWEEP_MS) {
@@ -754,7 +777,9 @@ public class DashView extends View {
         drawCar(c);
 
         // both scales face inward: against the screen edge they were half off the panel
-        columnScale(c, rpmX + barW, false, 6);      // -1800..+1800, a tick per 300
+        // the two halves carry different full-scale values, so the ticks divide travel, not
+        // torque: six to +1800 above the middle, six to -500 below it
+        columnScale(c, rpmX + barW, false, 6);
         columnScale(c, cooX, true, 4);              // 40..120 C, a tick per 20
         panel(c, rpmX, rpmY0, rpmX + barW, rpmY1);
         panel(c, cooX, rpmY0, cooX + barW, rpmY1);

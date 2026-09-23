@@ -16,7 +16,7 @@ import javax.imageio.ImageIO;
 public class Preview {
     static final int TORQUE=12,RPM=13,COOLANT=14,SPEED=17,GEAR=22,ACCEL=23,BRAKE=24,STEER=25,
         G_LAT=20,G_LONG=21,TP_FR=36,TP_FL=37,TP_RR=38,TP_RL=39;
-    static final float TORQUE_FULL=1800f, TORQUE_DEAD=18f;
+    static final float TORQUE_REGEN_FULL=1800f, TORQUE_DRIVE_FULL=500f, TORQUE_DEAD=18f;
     static final float COOLANT_MIN=40f, COOLANT_MAX=120f, COOLANT_COLD=60f, COOLANT_WARN=105f;
     static final float TPMS_LOW=30f, TPMS_HIGH=44f, STEER_FULL=390f, TPMS_PRESENT=1f, G_ALERT=0.60f;
     static final float BRAKE_FULL=90f, ACCEL_FULL=100f, G_FULL=1.0f;
@@ -187,7 +187,8 @@ public class Preview {
         if(x>=16&&x<=22) return "M"+(x-15);
         return "--";
     }
-    static float torqueFrac(){ float f=h(TORQUE)?g(TORQUE)/TORQUE_FULL:0f; return Math.max(-1,Math.min(1,f)); }
+    static float torqueFrac(){ float t=h(TORQUE)?g(TORQUE):0f;
+        float f=t>=0f?t/TORQUE_REGEN_FULL:t/TORQUE_DRIVE_FULL; return Math.max(-1,Math.min(1,f)); }
     static float clamp1(float x){ return x<-1f?-1f:x>1f?1f:x; }
 
     static BufferedImage carArt(){
@@ -475,7 +476,7 @@ public class Preview {
         } else if(mode.equals("lock")){
             // worst case for the header: full lock at a crawl, when the arrow swings widest
             pulse=1f; peakRegen=0.40f; peakDrive=0.95f; maxG=0.22f;
-            set(TORQUE,-1690f); set(RPM,0f); set(COOLANT,88f); set(SPEED,4f); set(GEAR,2f);
+            set(TORQUE,-455f); set(RPM,0f); set(COOLANT,88f); set(SPEED,4f); set(GEAR,2f);
             set(ACCEL,26f); set(BRAKE,0f); set(STEER,390f);   // right lock: the panel is on this side
             set(G_LAT,0.10f); set(G_LONG,0.04f); seedTrail(0.10f,0.04f,false);
             set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,38.2f);
@@ -487,7 +488,7 @@ public class Preview {
             set(TP_FL,39.2f); set(TP_FR,0f); set(TP_RL,38.5f); set(TP_RR,0f);
         } else {
             pulse=0.6f; peakRegen=0.66f; peakDrive=0.48f; maxG=0.47f; gearFlash=false;
-            set(TORQUE,-620f); set(RPM,0f); set(COOLANT,88f); set(SPEED,64f); set(GEAR,4f);
+            set(TORQUE,-280f); set(RPM,0f); set(COOLANT,88f); set(SPEED,64f); set(GEAR,4f);
             set(ACCEL,34f); set(BRAKE,0f); set(STEER,12f);
             set(G_LAT,0.32f); set(G_LONG,-0.18f); seedTrail(0.32f,-0.18f,true);
             set(TP_FL,39.2f); set(TP_FR,39.2f); set(TP_RL,38.5f); set(TP_RR,38.2f);

@@ -32,11 +32,50 @@ drive. Type 13 `ENGINE_RPM` is dead too.
 | **positive** | regenerative torque — the motor is acting as a generator, charging |
 | **negative** | drive torque — the motor is propelling the car |
 
-Confirmed on-car against the factory energy display, which agrees. This was missed twice over:
-once by reading the name as engine torque, and once by treating the −400 it holds at a
-standstill as a placeholder. It is not a placeholder — it is the creep torque the motor holds
-in D, which is why it is negative, and why it is exactly the value a stationary car in gear
-should show.
+Cross-checked on-car against the factory energy display, which agrees on direction. This was
+missed twice over: once by reading the name as engine torque, and once by treating the −400 it
+holds at a standstill as a placeholder.
+
+**The reading is provisional, and one measurement does not fit comfortably.** Over more driving:
+
+| Condition | Value |
+|---|---|
+| stationary in D, on the brake | −400 |
+| gentle acceleration | −200 to −300 |
+| accelerator released (coasting **or** braking) | ≈ +1600 |
+| peak seen | +1647.5 |
+
+Driving should not ask the motor for **less** torque than creep does, and that is what the
+middle row says. Two explanations survive:
+
+1. **It really is motor torque.** On a parallel hybrid the engine carries the car above walking
+   pace, so under light throttle the motor contributes little — possibly less than the creep it
+   holds against the brake at a standstill. Counter-intuitive, but not contradictory. The
+   accelerator has never been pushed past 39 % in any recorded drive, so the motor has never
+   been asked for much.
+2. **The Ygomi bridge is mis-scaling it.** Types 12, 13, 16 and 32 share the identical
+   placeholder `max=879.0`, and type 13 in that same group is outright dead — this is visibly
+   a signal group the bridge did not calibrate for this model.
+
+What the figures *do* rule out is a simple offset. Shifting the scale by +400 to put the
+standstill at zero puts drive and regeneration on the same side, ordered standstill <
+accelerating < coasting, which is not a coherent physical quantity. **The sign change carries
+real meaning**, whatever the magnitudes turn out to mean.
+
+### Two measurements would settle it
+
+Both are still unrecorded, and neither needs any new code:
+
+- **P / N / D at a standstill.** Motor torque → P and N read near zero (no creep path), D reads
+  −400. A fixed offset → all three read −400. This is a thirty-second test in a parking space
+  and it is the decisive one.
+- **Full throttle from a stop.** Motor torque → far past −400. If it stays around −300, reading
+  1 is dead.
+
+Until then the dashboard scales the two halves independently — +1800 regenerating, −500
+driving — from what has actually been observed. A single symmetric ±1800 let the regenerating
+half fill while the driving half never left three segments of twelve, which read as a broken
+gauge rather than as a small number.
 
 What is still missing is state of charge. Torque says which way the energy is flowing and how
 hard, but nothing on this bus says how full the battery is.
@@ -47,7 +86,7 @@ hard, but nothing on this bus says how full the battery is.
 |---|---|
 | 17 `VEHICLE_SPEED` | **raw value is km/h directly.** The original notes were right; the `max=655340` reading was not a clue to anything. |
 | 25 `STEERING_ANGLE` | **raw value is degrees directly**, **signed: right positive, left negative**, roughly **±390 at full lock**, carrying one decimal. Note this is *not* the 0.1-degree unit the `resolution` field implies — 390 raw is 390°, matching the quick DAS rack. Fully calibrated; ready to use as-is. |
-| 12 `EFFECTIVE_TORQUE` | **electric motor torque, signed.** Positive regenerates, negative drives. −400 at a standstill in D is creep torque, not a placeholder; +1647.5 seen under braking. Unit unknown, so the scale stays uncalibrated, and the drive-side range is still unmeasured — nothing yet has been recorded under full throttle. |
+| 12 `EFFECTIVE_TORQUE` | **read as electric motor torque, signed** — positive regenerates, negative drives — but **provisional**: gentle acceleration reads −200 to −300, i.e. *less* than the −400 held at a standstill. See above for what would settle it. Unit unknown; the two ends are scaled independently from observation. |
 | 26 `REGENERATION` | **flat zero.** Held 0.000 for min, max and current across a full 578 s drive with braking, having previously looked alive only because a constant zero counts events like any other value. Nothing in the Sensor API carries hybrid energy flow. |
 | 13 `ENGINE_RPM` | **dead.** Stayed at 0.000 across repeated drives on a warm car, including a whole trip watched by an indicator that would have lit the moment it left zero. It never did. Nothing can be built on it, and the electric-drive inference that depended on it has been removed. |
 | 23 `ACCELERATOR_PEDAL_POSITION` | peaked at **39.25** under ordinary throttle, which reads as a percentage despite the declared maximum of 1000. |
@@ -121,7 +160,7 @@ is exactly 255 × 0.25, confirming the TPMS raw value is already psi in quarter-
 
 | Type | Name | max | res | Notes |
 |---|---|---|---|---|
-| 12 | `VS_ID_EFFECTIVE_TORQUE` | 879.0 | 1.0 | **motor torque, signed: + regen, − drive.** Unit unknown; max field is a placeholder |
+| 12 | `VS_ID_EFFECTIVE_TORQUE` | 879.0 | 1.0 | **motor torque, signed: + regen, − drive — provisional.** Unit unknown; max is a placeholder |
 | 13 | `VS_ID_ENGINE_RPM` | 879.0 | 1.0 | **dead — 0.000 across repeated warm drives** |
 | 14 | `VS_ID_ENGINE_COOLANT_TEMPERATURE` | 214.0 | 1.0 | °C direct |
 | 15 | `VS_ID_ENGINE_OIL_TEMPERATURE` | 205.0 | 1.0 | reported −50 at rest on this car |
