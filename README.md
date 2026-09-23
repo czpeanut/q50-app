@@ -41,7 +41,7 @@ Some of it is counter-intuitive, and most of it was learned the hard way:
 
 | Signal | What it turned out to be |
 |---|---|
-| `VS_ID_EFFECTIVE_TORQUE` (12) | The **electric motor's** torque, **signed**: positive regenerates, negative drives. Not engine torque. |
+| `VS_ID_EFFECTIVE_TORQUE` (12) | Reads as the **electric motor's** torque, **signed** — positive regenerates, negative drives — but never firmed up, so it is not on the screen. See the docs. |
 | `VS_ID_STEERING_ANGLE` (25) | Degrees directly, right positive, ±390 at full lock. Not the 0.1° its `resolution` field implies. |
 | `VS_ID_VEHICLE_SPEED` (17) | Plain km/h, despite a `maximumRange` of 655340. |
 | `VS_ID_ENGINE_RPM` (13) | **Dead.** Held 0.000 through entire warm drives. |
@@ -55,10 +55,12 @@ in amber rather than pretending to be an engineering unit.
 
 ## The screen
 
-Motor torque on the left as a bipolar column (regeneration up in green, drive down in amber, with
-this trip's peak marked on each side), coolant on the right, gear and steering across the top, the
-car in the middle with a tyre-pressure callout at each corner, a status panel that names the worst
-active condition, a friction circle for lateral and longitudinal g, and road speed.
+The pedals on the left as a bipolar column — throttle up in cyan, brake down in red, with this
+trip's peak marked on each side — and coolant on the right. Across the top, one row of matching
+cells: pedal figure, gear, steering angle, coolant. The car sits in the middle with a
+tyre-pressure callout at each corner and a heading arrow that leans with the wheel. Along the
+bottom, a status strip naming the worst active condition, a friction circle for lateral and
+longitudinal g, and road speed.
 
 A tyre reading zero means its sensor has not been heard from yet, not that the tyre is flat, and
 the screen says so.

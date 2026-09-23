@@ -59,42 +59,21 @@ import java.util.Random;
 public class DashView extends View {
 
     // ---- signal types, all confirmed on this car ----
-    private static final int TORQUE = 12, RPM = 13, COOLANT = 14, SPEED = 17, GEAR = 22,
+    private static final int RPM = 13, COOLANT = 14, SPEED = 17, GEAR = 22,
             ACCEL = 23, BRAKE = 24, STEER = 25, G_LAT = 20, G_LONG = 21,
             TP_FR = 36, TP_FL = 37, TP_RR = 38, TP_RL = 39;
 
     // ---- calibration ----
-    // Type 12 is read as the ELECTRIC MOTOR's torque, signed: positive regenerates, negative
-    // drives. That reading came from a cross-check against the factory energy display and it
-    // still fits, but it is PROVISIONAL -- see the asymmetry below.
+    // Type 12 EFFECTIVE_TORQUE is no longer on this screen. It was read as the electric
+    // motor's signed torque, positive regenerating, and that reading never firmed up: gentle
+    // acceleration showed LESS drive torque than the car holds at a standstill, and settling
+    // it needed deliberate test drives. An uncalibrated number in an unknown unit does not
+    // earn a full column on a screen that is read at a glance while driving. Every
+    // measurement, and the two experiments that would settle it, are kept in
+    // docs/sensors-vq35hr.md, so the finding outlives the gauge.
     //
-    // Measured so far, on this car:
-    //
-    //     stationary in D      -400          creep torque held against the brake
-    //     gentle acceleration  -200 .. -300  LESS drive torque than creep
-    //     accelerator released +1600         same figure whether or not the brake is applied
-    //     peak seen            +1647.5
-    //
-    // The middle row is the one that unsettles it: driving should not ask the motor for less
-    // than creep does. On a parallel hybrid it can, because above walking pace the engine
-    // carries the car and the motor barely contributes under light throttle -- so the figures
-    // are counter-intuitive rather than contradictory. Two things would settle it, and both
-    // are still unmeasured: what P and N read at a standstill (motor torque -> near zero,
-    // a fixed offset -> still -400), and what full throttle reads (motor torque -> far past
-    // -400).
-    //
-    // What the numbers do rule out is a plain offset. Shifting the scale by +400 to put the
-    // standstill at zero puts drive and regeneration on the SAME side, ordered standstill <
-    // accelerating < coasting, which is not a coherent physical quantity. The sign change is
-    // carrying real meaning.
-    //
-    // The unit is unknown, so the two ends are scaled independently, from what has actually
-    // been observed. A single symmetric +-1800 was wrong twice over: it let the regenerating
-    // half fill while the driving half never left the first three segments of twelve, which
-    // read as a broken gauge rather than as a small number.
-    private static final float TORQUE_REGEN_FULL = 1800f;   // +1647.5 observed
-    private static final float TORQUE_DRIVE_FULL = 500f;    // -400 observed; raise after WOT
-    private static final float TORQUE_DEAD = 18f;       // inside this, call it neutral
+    // The column it occupied now carries the two pedals, which are calibrated, continuous,
+    // and describe something the driver can feel.
     private static final float COOLANT_MIN = 40f, COOLANT_MAX = 120f;
     private static final float COOLANT_COLD = 60f, COOLANT_WARN = 105f;
     private static final float TPMS_LOW = 30f, TPMS_HIGH = 44f;
@@ -107,6 +86,7 @@ public class DashView extends View {
     // Type 23 declares a maximum of 1000 but peaked at 39.25 over a drive with ordinary
     // throttle, which reads as a percentage. On the declared scale the bar would barely move.
     private static final float ACCEL_FULL = 100f;
+    private static final float PEDAL_DEAD = 1.5f;   // below this, call the pedal released
     private static final float G_FULL = 1.0f;       // friction circle outer ring
 
     // ---- palette ----
@@ -126,7 +106,7 @@ public class DashView extends View {
 
     // ---- animation state ----
     private long t0, lastFrame;
-    private float peakRegen, peakDrive;   // trip peaks, one for each direction
+    private float peakThr, peakBrk;       // trip peaks, one for each pedal
     private int lastGear = -999;
     private long gearFlash;
     private final float[] trailX = new float[TRAIL], trailY = new float[TRAIL];
@@ -150,13 +130,15 @@ public class DashView extends View {
     private float W, H;
     private float rpmX, rpmY0, rpmY1, barW, cooX;
     private float carCx, carCy, carW, carH;
-    private final RectF statusBox = new RectF();
+    // Header cells, all one height and all framed like the gear, so the top row reads as
+    // a single instrument rather than four differently-dressed readouts.
+    private final RectF pedalBox = new RectF(), steerBox = new RectF(), coolBox = new RectF();
+    private final RectF speedBox = new RectF(), statusBar = new RectF();
     private float gCx, gCy, gR;
     private final RectF[] tyreBox = new RectF[4];
     private final float[] tyreDotX = new float[4], tyreDotY = new float[4];
     private final int[] tyreType = { TP_FL, TP_FR, TP_RL, TP_RR };
     private final RectF gearBox = new RectF();
-    private float pedalL, pedalR, pedalY0, pedalY1;
 
     public DashView(Context c) {
         super(c);
@@ -193,7 +175,7 @@ public class DashView extends View {
 
     /** representative values so the layout can be judged off-car */
     public void seedDemo() {
-        setValue(TORQUE, -280f); setValue(RPM, 0f); setValue(COOLANT, 88f);   // measured, light throttle
+        setValue(RPM, 0f); setValue(COOLANT, 88f);
         setValue(SPEED, 64f); setValue(GEAR, 4f); setValue(ACCEL, 34f); setValue(BRAKE, 0f); setValue(STEER, 12f);
         setValue(G_LAT, 0.32f); setValue(G_LONG, -0.18f);
         setValue(TP_FL, 39.2f); setValue(TP_FR, 39.2f);
@@ -217,23 +199,21 @@ public class DashView extends View {
 
         // The EV badge is gone. It inferred electric drive from zero rpm at road speed, and
         // type 13 never once left zero across a whole trip, so there was nothing behind it.
-        gearBox.set(W * 0.185f, H * 0.0583f, W * 0.285f, H * 0.1833f);
-
-        // The steering readout sits beside its own dial rather than above the car, which
-        // keeps the whole centre column free for the heading arrow to rise into. The two
-        // belong together anyway.
-        // The steering dial is gone. It duplicated the heading arrow, which already shows
-        // the wheel, and the corner is worth more as somewhere for the car to say what is
-        // wrong. The steering figure stays; only the dial went.
-        // Steering moved into the gap left of the arrow, which was simply empty. That frees
-        // the right side for a wider status panel, and puts the figure where the arrow it
-        // describes can be seen in the same glance.
         //
-        // The right-hand header carries three things and the English words are far longer
-        // than the Chinese ones -- COOLANT against 水溫 is seven characters against two. Each
-        // label is now fitted to a budget rather than trusted to be short enough, so neither
-        // language can push one into its neighbour.
-        statusBox.set(W * 0.60f, H * 0.0583f, W * 0.80f, H * 0.1833f);
+        // The header is now one row of identical cells: a small grey caption, a framed well,
+        // a number centred in it. Before this the two columns wore their own larger left- and
+        // right-aligned headings while the gear sat in a bracketed box, which read as three
+        // designs sharing a screen. The outer two are held to a width that takes three digits
+        // and no more, so neither language can push a caption into its neighbour.
+        float cellT = H * 0.0583f, cellB = H * 0.1833f, cellW = W * 0.115f;
+        pedalBox.set(rpmX, cellT, rpmX + cellW, cellB);
+        gearBox.set(W * 0.185f, cellT, W * 0.285f, cellB);
+        coolBox.set(cooX + barW - cellW, cellT, cooX + barW, cellB);
+
+        // Steering takes the corner the status panel had. That leaves the centre clear for
+        // the heading arrow to rise into, which is the whole reason the gap exists -- the
+        // figure had been parked in it, in front of the very thing it describes.
+        steerBox.set(W * 0.60f, cellT, W * 0.80f, cellB);
 
         // the supplied drawing is taller than it is wide, so height is what limits it
         carW = W * 0.255f;
@@ -259,8 +239,15 @@ public class DashView extends View {
         gCx = W * 0.15f;
         gCy = H * 0.855f;
 
-        pedalL = W * 0.3125f; pedalR = W * 0.6875f;
-        pedalY0 = H * 0.855f; pedalY1 = H * 0.915f;
+        // What the car has to say now runs along the bottom, in the band the pedal bar used
+        // to occupy. A wide shallow strip wants one line rather than two, so the detail
+        // follows the condition instead of sitting under it. The left edge clears the peak-g
+        // figure beside the friction circle.
+        statusBar.set(W * 0.325f, H * 0.845f, W * 0.695f, H * 0.920f);
+
+        // Road speed is framed like everything else, with its caption above the box and below
+        // the rear-right tyre callout.
+        speedBox.set(W * 0.705f, H * 0.800f, W * 0.895f, H * 0.960f);
     }
 
     // ------------------------------------------------------------------ frame
@@ -279,14 +266,13 @@ public class DashView extends View {
         else drawStatic(c);                        // out of memory: pay it every frame
 
         float pulse = 0.55f + 0.45f * (float) Math.sin(now * 0.009);
-        drawTorque(c, now);
+        drawPedalColumn(c);
         drawCoolant(c, pulse);
         drawGear(c, now);
         drawSteering(c);
         drawTyres(c, pulse);
         drawStatus(c, pulse);
         drawFriction(c);
-        drawPedals(c);
         drawHeading(c);
         drawSpeed(c);
     }
@@ -352,17 +338,17 @@ public class DashView extends View {
 
     /** ease every displayed value toward its target and advance the animation state */
     private void step(long now, float dt) {
-        ease(TORQUE, 0.30f, dt); ease(RPM, 0.30f, dt);
+        ease(RPM, 0.30f, dt);
         ease(COOLANT, 0.06f, dt); ease(SPEED, 0.22f, dt);
         ease(STEER, 0.40f, dt); ease(ACCEL, 0.35f, dt); ease(BRAKE, 0.35f, dt);
         ease(G_LAT, 0.30f, dt); ease(G_LONG, 0.30f, dt);
         for (int i = 0; i < 4; i++) d[tyreType[i]] = v[tyreType[i]];   // pressures never jump
         d[GEAR] = v[GEAR];
 
-        // trip peaks, one per direction: the most it has regenerated and the most it has driven
-        float frac = torqueFrac();
-        if (frac > peakRegen) peakRegen = frac;
-        if (frac < -peakDrive) peakDrive = -frac;
+        // trip peaks, one per pedal: the hardest it has been accelerated and braked
+        float thr = pedalFrac(ACCEL, ACCEL_FULL), brk = pedalFrac(BRAKE, BRAKE_FULL);
+        if (thr > peakThr) peakThr = thr;
+        if (brk > peakBrk) peakBrk = brk;
 
         int gear = h(GEAR) ? (int) (v[GEAR] + 0.5f) : -999;
         if (gear != lastGear) { lastGear = gear; gearFlash = now + 320; }
@@ -385,70 +371,74 @@ public class DashView extends View {
         d[t] += (v[t] - d[t]) * a;
     }
 
-    /**
-     * Signed -1..1 of the torque scale, overridden by the launch sweep while it runs. The two
-     * halves have different full-scale values, so this is a fraction of travel and never a
-     * figure to compare across the zero line.
-     */
-    private float torqueFrac() {
-        float t = h(TORQUE) ? d[TORQUE] : 0f;
-        float frac = t >= 0f ? t / TORQUE_REGEN_FULL : t / TORQUE_DRIVE_FULL;
-        if (frac < -1f) frac = -1f; else if (frac > 1f) frac = 1f;
-        long age = System.currentTimeMillis() - t0;
-        if (age < SWEEP_MS) {
-            // one full cycle either side of zero, which shows the gauge is bipolar before the
-            // car has said anything
-            float sweep = (float) Math.sin(age / (double) SWEEP_MS * Math.PI * 2.0);
-            if (Math.abs(sweep) > Math.abs(frac)) frac = sweep;
-        }
-        return frac;
+    /** 0..1 of a pedal's travel, clamped. */
+    private float pedalFrac(int t, float full) {
+        float f = h(t) ? d[t] / full : 0f;
+        return f < 0f ? 0f : f > 1f ? 1f : f;
     }
 
     // ------------------------------------------------------------------ live parts
 
     /**
-     * Motor torque, drawn as a bipolar column with zero in the middle: regenerative torque
-     * climbs in green, drive torque descends in amber. A single-ended bar would have been a
-     * lie about a signal that spends its life on both sides of zero.
+     * The two pedals, as one bipolar column with rest in the middle: throttle climbs in cyan,
+     * brake descends in red. This is the horizontal bar that used to sit under the car, stood
+     * on end -- the same reading, in the space the torque column gave up, with twelve segments
+     * a side instead of a strip shared between both feet.
+     *
+     * One column rather than two parallel ones, because the two are almost never pressed at
+     * once and because two bars inside a fifty-pixel well would each be too thin to read at a
+     * glance, which is the only way this screen is ever read.
      */
-    private void drawTorque(Canvas c, long now) {
-        final int HALF = 12;                        // segments each side of zero
+    private void drawPedalColumn(Canvas c) {
+        final int HALF = 12;                        // segments each side of rest
         float inner = barW * 0.18f;
         float x0 = rpmX + inner, x1 = rpmX + barW - inner;
         float span = (rpmY1 - rpmY0) - inner * 2f;
         float mid = rpmY0 + inner + span * 0.5f;
         float seg = span * 0.5f / HALF;
 
-        float frac = torqueFrac();
-        int onUp = frac > 0f ? (int) (frac * HALF + 0.5f) : 0;
-        int onDn = frac < 0f ? (int) (-frac * HALF + 0.5f) : 0;
+        float thr = pedalFrac(ACCEL, ACCEL_FULL);
+        float brk = pedalFrac(BRAKE, BRAKE_FULL);
+        long age = System.currentTimeMillis() - t0;
+        if (age < SWEEP_MS) {
+            // one full cycle either side of rest, which shows the column is bipolar before a
+            // foot has touched anything
+            float sweep = (float) Math.sin(age / (double) SWEEP_MS * Math.PI * 2.0);
+            if (sweep > thr) thr = sweep;
+            if (-sweep > brk) brk = -sweep;
+        }
+        int onUp = (int) (thr * HALF + 0.5f);
+        int onDn = (int) (brk * HALF + 0.5f);
 
         p.setStyle(Paint.Style.FILL);
         for (int i = 0; i < HALF; i++) {
             float pad = seg * 0.14f;
-            segment(c, x0, mid - (i + 1) * seg + pad, x1, mid - i * seg - pad, i < onUp, GREEN);
-            segment(c, x0, mid + i * seg + pad, x1, mid + (i + 1) * seg - pad, i < onDn, AMBER);
+            segment(c, x0, mid - (i + 1) * seg + pad, x1, mid - i * seg - pad, i < onUp, CYAN);
+            segment(c, x0, mid + i * seg + pad, x1, mid + (i + 1) * seg - pad, i < onDn, RED);
         }
 
-        // zero line, so the middle is unmistakable at a glance
+        // rest line, so the middle is unmistakable at a glance
         p.setColor(0xCCEAF6FF);
         c.drawRect(rpmX - 1f, mid - 1.2f, rpmX + barW + 1f, mid + 1.2f, p);
 
-        if (peakRegen > 0.03f) peakMark(c, mid - peakRegen * span * 0.5f, GREEN);
-        if (peakDrive > 0.03f) peakMark(c, mid + peakDrive * span * 0.5f, AMBER);
+        if (peakThr > 0.03f) peakMark(c, mid - peakThr * span * 0.5f, CYAN);
+        if (peakBrk > 0.03f) peakMark(c, mid + peakBrk * span * 0.5f, RED);
 
-        boolean regen = h(TORQUE) && d[TORQUE] > TORQUE_DEAD;
-        boolean drive = h(TORQUE) && d[TORQUE] < -TORQUE_DEAD;
-        int n = h(TORQUE) ? fmt(d[TORQUE], 0) : dashes();
-        drawNum(c, n, rpmX, H * 0.1667f, 0, H * 0.062f,
-                !h(TORQUE) ? GREY : regen ? GREEN : drive ? AMBER : WHITE);
+        // The number follows whichever foot is down, brake first: that is the reading you
+        // want without having to work out which of two figures you are looking at.
+        boolean braking = h(BRAKE) && d[BRAKE] > PEDAL_DEAD;
+        boolean onGas = !braking && h(ACCEL) && d[ACCEL] > PEDAL_DEAD;
+        int live = braking ? BRAKE : ACCEL;
+        int n = h(live) ? fmt(d[live], 0) : dashes();
+        drawNum(c, n, pedalBox.centerX(), H * 0.1583f, 1, H * 0.090f,
+                !h(live) ? GREY : braking ? RED : onGas ? CYAN : WHITE);
 
-        if (regen || drive) {
-            pText.setColor(regen ? GREEN : AMBER);
-            String dir = regen ? (cjk ? "回充" : "REGEN") : (cjk ? "輸出" : "DRIVE");
-            pText.setTextAlign(Paint.Align.LEFT);
-            pText.setTextSize(fitSize(dir, gearBox.left - rpmX - W * 0.014f, H * 0.038f));
-            c.drawText(dir, rpmX, H * 0.208f, pText);
+        if (braking || onGas) {
+            pText.setColor(braking ? RED : CYAN);
+            String dir = braking ? (cjk ? "刹車" : "BRAKE") : (cjk ? "加速" : "THROTTLE");
+            pText.setTextAlign(Paint.Align.CENTER);
+            pText.setTextSize(fitSize(dir, pedalBox.width(), H * 0.036f));
+            c.drawText(dir, pedalBox.centerX(), H * 0.201f, pText);
         }
     }
 
@@ -495,16 +485,16 @@ public class DashView extends View {
             c.drawPath(path, p);
         }
         int n = h(COOLANT) ? fmt(d[COOLANT], 0) : dashes();
-        drawNum(c, n, cooX + barW, H * 0.1667f, 2, H * 0.062f,
+        drawNum(c, n, coolBox.centerX(), H * 0.1583f, 1, H * 0.090f,
                 h(COOLANT) ? (hot ? RED : cold ? AMBER : WHITE) : GREY);
 
         // VQ35 does not want revs until it is warm, so say so plainly
         if (cold) {
             pText.setColor((AMBER & 0x00FFFFFF) | ((int) (0x80 + 0x7F * pulse) << 24));
             String warm = cjk ? "暖車中" : "WARMING";
-            pText.setTextAlign(Paint.Align.RIGHT);
-            pText.setTextSize(fitSize(warm, W * 0.17f, H * 0.040f));
-            c.drawText(warm, cooX + barW, H * 0.208f, pText);
+            pText.setTextAlign(Paint.Align.CENTER);
+            pText.setTextSize(fitSize(warm, coolBox.width(), H * 0.036f));
+            c.drawText(warm, coolBox.centerX(), H * 0.201f, pText);
         }
     }
 
@@ -535,14 +525,15 @@ public class DashView extends View {
     private void drawSteering(Canvas c) {
         float deg = g(STEER);                       // degrees directly, right positive
         int n = h(STEER) ? fmt(deg, 0) : dashes();
-        // sized and lifted so that full lock -- where the heading arrow swings widest --
-        // still clears it, and so that four characters clear the status panel
-        drawNum(c, n, W * 0.35f, H * 0.155f, 1, H * 0.070f, h(STEER) ? WHITE : GREY);
+        // sized for the widest it ever gets, "-390": a minus and three digits in the cell
+        drawNum(c, n, steerBox.centerX(), H * 0.1583f, 1, H * 0.095f, h(STEER) ? WHITE : GREY);
     }
 
     /**
-     * What the car wants to say, in the corner the steering dial used to occupy. One line for
-     * the condition and one for its detail, worst first, so a glance is enough.
+     * What the car wants to say, along the bottom where the pedal bar used to run. The strip
+     * is wide and shallow, so the condition and its detail share one line rather than stacking:
+     * the condition in its colour, the figure behind it in grey. Worst first, so a glance is
+     * enough.
      *
      * A tyre still acquiring its sensor is reported as such and never as a pressure fault:
      * those two states look identical in the raw value and mean opposite things.
@@ -592,19 +583,35 @@ public class DashView extends View {
         if (col == RED || col == AMBER) {
             p.setStyle(Paint.Style.FILL);
             p.setColor((col & 0x00FFFFFF) | ((int) (0x16 + 0x22 * pulse) << 24));
-            c.drawRect(statusBox, p);
+            c.drawRect(statusBar, p);
         }
-        // messages vary in length and some are longer in English than in Chinese, so the
-        // size is fitted to the panel rather than assumed to fit
-        float room = statusBox.width() - W * 0.016f;
-        pText.setTextAlign(Paint.Align.CENTER);
+
+        // Messages vary in length and several are far longer in English than in Chinese, so
+        // both pieces are fitted rather than assumed to fit, and the pair is centred together.
+        float room = statusBar.width() - W * 0.020f;
+        boolean hasDetail = detail.length() > 0;
+        float gap = hasDetail ? W * 0.018f : 0f;
+
+        float hs = fitSize(head, hasDetail ? room * 0.64f : room, H * 0.055f);
+        pText.setTextSize(hs);
+        float hw = pText.measureText(head);
+
+        float ds = 0f, dw = 0f;
+        if (hasDetail) {
+            ds = fitSize(detail, room - hw - gap, H * 0.038f);
+            pText.setTextSize(ds);
+            dw = pText.measureText(detail);
+        }
+
+        float sx = statusBar.centerX() - (hw + gap + dw) * 0.5f;
+        pText.setTextAlign(Paint.Align.LEFT);
         pText.setColor(col);
-        pText.setTextSize(fitSize(head, room, H * 0.056f));
-        c.drawText(head, statusBox.centerX(), H * 0.128f, pText);
-        if (detail.length() > 0) {
+        pText.setTextSize(hs);
+        c.drawText(head, sx, H * 0.898f, pText);
+        if (hasDetail) {
             pText.setColor(GREY);
-            pText.setTextSize(fitSize(detail, room, H * 0.036f));
-            c.drawText(detail, statusBox.centerX(), H * 0.171f, pText);
+            pText.setTextSize(ds);
+            c.drawText(detail, sx + hw + gap, H * 0.898f, pText);
         }
     }
 
@@ -713,33 +720,9 @@ public class DashView extends View {
 
     private static float clamp1(float x) { return x < -1f ? -1f : x > 1f ? 1f : x; }
 
-    private void drawPedals(Canvas c) {
-        float mid = (pedalL + pedalR) * 0.5f;
-        float half = (pedalR - pedalL) * 0.5f - 3f;
-        p.setStyle(Paint.Style.FILL);
-
-        float brk = h(BRAKE) ? d[BRAKE] / BRAKE_FULL : 0f;
-        brk = brk < 0 ? 0 : brk > 1 ? 1 : brk;
-        if (brk > 0.005f) {
-            p.setColor(0x66FF4545);
-            c.drawRect(mid - half * brk, pedalY0 + 3f, mid - 2f, pedalY1 - 3f, p);
-            p.setColor(RED);
-            c.drawRect(mid - half * brk, pedalY0 + 3f, mid - half * brk + 4f, pedalY1 - 3f, p);
-        }
-        float thr = h(ACCEL) ? d[ACCEL] / ACCEL_FULL : 0f;
-        thr = thr < 0 ? 0 : thr > 1 ? 1 : thr;
-        if (thr > 0.005f) {
-            p.setColor(0x663FD2FF);
-            c.drawRect(mid + 2f, pedalY0 + 3f, mid + half * thr, pedalY1 - 3f, p);
-            p.setColor(CYAN);
-            c.drawRect(mid + half * thr - 4f, pedalY0 + 3f, mid + half * thr, pedalY1 - 3f, p);
-        }
-
-    }
-
     private void drawSpeed(Canvas c) {
         int n = h(SPEED) ? fmt(d[SPEED], 0) : dashes();
-        drawNum(c, n, W * 0.80f, H * 0.935f, 1, H * 0.145f, h(SPEED) ? WHITE : GREY);
+        drawNum(c, n, speedBox.centerX(), H * 0.930f, 1, H * 0.130f, h(SPEED) ? WHITE : GREY);
     }
 
     // ------------------------------------------------------------------ static layer
@@ -777,30 +760,16 @@ public class DashView extends View {
         drawCar(c);
 
         // both scales face inward: against the screen edge they were half off the panel
-        // the two halves carry different full-scale values, so the ticks divide travel, not
-        // torque: six to +1800 above the middle, six to -500 below it
-        columnScale(c, rpmX + barW, false, 6);
+        columnScale(c, rpmX + barW, false, 6);      // bipolar: six a side of rest
         columnScale(c, cooX, true, 4);              // 40..120 C, a tick per 20
         panel(c, rpmX, rpmY0, rpmX + barW, rpmY1);
         panel(c, cooX, rpmY0, cooX + barW, rpmY1);
-        pText.setColor(WHITE);
-        pText.setTextSize(H * 0.071f);
-        pText.setTextAlign(Paint.Align.LEFT);
-        String motor = cjk ? "馬達扭力" : "MOTOR";
-        pText.setTextSize(fitSize(motor, gearBox.left - rpmX - W * 0.014f, H * 0.058f));
-        c.drawText(motor, rpmX, H * 0.0833f, pText);
-        String coolant = cjk ? "水溫" : "COOLANT";
-        pText.setTextAlign(Paint.Align.RIGHT);
-        pText.setTextSize(fitSize(coolant,
-                (cooX + barW) - statusBox.right - W * 0.014f, H * 0.068f));
-        c.drawText(coolant, cooX + barW, H * 0.0833f, pText);
 
-        panel(c, gearBox.left, gearBox.top, gearBox.right, gearBox.bottom);
-        label(c, cjk ? "檔位" : "GEAR", gearBox.centerX(), gearBox.width(), H * 0.0458f);
-        label(c, cjk ? "轉向角" : "STEERING", W * 0.35f, W * 0.15f, H * 0.0458f);
-
-        panel(c, statusBox.left, statusBox.top, statusBox.right, statusBox.bottom);
-        label(c, cjk ? "狀態" : "STATUS", statusBox.centerX(), statusBox.width(), H * 0.0458f);
+        // one header row, four identical cells, every number framed the way the gear is
+        headerCell(c, pedalBox, cjk ? "踏板" : "PEDALS");
+        headerCell(c, gearBox,  cjk ? "檔位" : "GEAR");
+        headerCell(c, steerBox, cjk ? "轉向角" : "STEERING");
+        headerCell(c, coolBox,  cjk ? "水溫" : "COOLANT");
 
         for (int i = 0; i < 4; i++) {
             RectF b = tyreBox[i];
@@ -828,22 +797,13 @@ public class DashView extends View {
             c.drawText(tyreLabel(i), b.left + W * 0.012f, b.top + H * 0.038f, pText);
         }
 
-        panel(c, pedalL, pedalY0, pedalR, pedalY1);
-        p.setStyle(Paint.Style.STROKE);
-        p.setColor(CYAN_DIM);
-        p.setStrokeWidth(1.4f);
-        c.drawLine((pedalL + pedalR) * 0.5f, pedalY0, (pedalL + pedalR) * 0.5f, pedalY1, p);
-        pText.setColor(GREY);
-        float halfBar = (pedalR - pedalL) * 0.46f;
-        String brk = cjk ? "刹車" : "BRAKE", thr = cjk ? "加速" : "THROTTLE";
-        pText.setTextAlign(Paint.Align.LEFT);
-        pText.setTextSize(fitSize(brk, halfBar, H * 0.044f));
-        c.drawText(brk, pedalL, pedalY0 - H * 0.018f, pText);
-        pText.setTextAlign(Paint.Align.RIGHT);
-        pText.setTextSize(fitSize(thr, halfBar, H * 0.044f));
-        c.drawText(thr, pedalR, pedalY0 - H * 0.018f, pText);
+        // The status strip carries no caption. It labels itself -- a word reading STATUS
+        // above a line reading ALL OK is one word too many.
+        panel(c, statusBar.left, statusBar.top, statusBar.right, statusBar.bottom);
 
-        label(c, cjk ? "車速 km/h" : "SPEED km/h", W * 0.80f, W * 0.20f, H * 0.815f);
+        panel(c, speedBox.left, speedBox.top, speedBox.right, speedBox.bottom);
+        label(c, cjk ? "車速 km/h" : "SPEED km/h", speedBox.centerX(), speedBox.width(),
+                speedBox.top - H * 0.018f);
     }
 
     /**
@@ -1044,6 +1004,12 @@ public class DashView extends View {
         c.drawLine(rr - len, t, rr, t, p); c.drawLine(rr, t, rr, t + len, p);
         c.drawLine(l, b - len, l, b, p); c.drawLine(l, b, l + len, b, p);
         c.drawLine(rr - len, b, rr, b, p); c.drawLine(rr, b, rr, b - len, p);
+    }
+
+    /** a framed well with its small grey caption above it: the gear's dress, worn by all */
+    private void headerCell(Canvas c, RectF b, String caption) {
+        panel(c, b.left, b.top, b.right, b.bottom);
+        label(c, caption, b.centerX(), b.width(), b.top - H * 0.0125f);
     }
 
     private void label(Canvas c, String s, float cx, float budget, float baseline) {

@@ -72,10 +72,12 @@ Both are still unrecorded, and neither needs any new code:
 - **Full throttle from a stop.** Motor torque → far past −400. If it stays around −300, reading
   1 is dead.
 
-Until then the dashboard scales the two halves independently — +1800 regenerating, −500
-driving — from what has actually been observed. A single symmetric ±1800 let the regenerating
-half fill while the driving half never left three segments of twelve, which read as a broken
-gauge rather than as a small number.
+Until that is settled the signal is **off the dashboard**. It had a full column, scaled
+independently at each end because the observed range is lopsided, and an uncalibrated number in
+an unknown unit does not earn that much of a screen read at a glance while driving. The column
+now carries the two pedals, which are calibrated and continuous. This file is where the finding
+lives; if either measurement above comes back the way reading 1 predicts, the gauge is ten lines
+of code away.
 
 What is still missing is state of charge. Torque says which way the energy is flowing and how
 hard, but nothing on this bus says how full the battery is.
