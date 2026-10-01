@@ -98,7 +98,8 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
         live = text(0xFFFFD27A);
         net = text(0xFF7AE0FF);
         report = text(0xFFE0E0E0);
-        net.setText("[網路測試] 尚未執行。按上面的按鈕開始，約需 15 秒。");
+        net.setText("[網路測試] 尚未執行。按上面的按鈕開始，約需 15 秒。\n"
+                + "  請記下這次開機時「允許應用程式存取網路？」按的是「是」還是「否」。");
         body.addView(live);
         body.addView(net);
         body.addView(report);
@@ -153,7 +154,7 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
         if (v == bScan) scan();
         else if (v == bNet && !probing) {
             probing = true;
-            net.setText("[網路測試] 進行中…（如果跳出「允許應用程式存取網路？」請按「是」，並記下它有沒有跳出來）");
+            net.setText("[網路測試] 進行中…約 15 秒");
             new Thread(new Probe(this)).start();
         }
     }
@@ -163,6 +164,8 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
     private void scan() {
         StringBuilder sb = new StringBuilder();
         long t0 = SystemClock.uptimeMillis();
+        // the network prompt is answered once per boot, so every photo needs to say which boot
+        sb.append("開機後 / since boot: ").append(SystemClock.elapsedRealtime() / 1000).append(" s\n");
         for (int i = 0; i <= 8; i++) {
             section(sb, TITLES[i]);
             // one section failing must not cost the rest of the report
@@ -463,7 +466,8 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
         Probe(SurveyActivity a) { this.a = a; }
 
         public void run() {
-            StringBuilder sb = new StringBuilder("[網路測試]\n");
+            StringBuilder sb = new StringBuilder("[網路測試]  開機後 ")
+                .append(SystemClock.elapsedRealtime() / 1000).append(" 秒\n");
             List<String> gw = gateways();
             for (int i = 0; i < gw.size(); i++) {
                 sb.append(line(gw.get(i), 53)).append(line(gw.get(i), 80));
