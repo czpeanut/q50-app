@@ -1,0 +1,4 @@
+# Development-only tooling stays out of `git archive`, which is how the published V.T.D
+# repository is synced from this one.
+tools/survey export-ignore
+.gitattributes export-ignore

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Template: tools/survey/build.sh fills in the @...@ fields once per variant. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="@PKG@"
+    android:versionCode="1"
+    android:versionName="survey">
+
+    <uses-sdk android:minSdkVersion="10" android:targetSdkVersion="10" />
+
+    @CANREAD@
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+
+    <application android:label="@LABEL@" android:icon="@drawable/ic_launcher">
+        <meta-data android:name="ivi.isDistractive"  android:value="false" />
+        <meta-data android:name="ivi.shortcut"       android:value="true" />
+        <meta-data android:name="ivi.audio"          android:value="false" />
+        <meta-data android:name="ivi.autorun"        android:value="false" />
+        <meta-data android:name="ivi.Disclaimer"     android:value="false" />
+        <meta-data android:name="ivi.supportDisplay" android:value="ALL" />
+        <meta-data android:name="ivi.defaultDisplay" android:value="@DISPLAY@" />
+
+        <!-- fully qualified: the class lives in vtd.survey whatever this variant's package is -->
+        <activity android:name="vtd.survey.SurveyActivity" android:label="@LABEL@"
+                  android:screenOrientation="landscape">
+            <meta-data android:name="ivi.isDistractive" android:value="false" />
+            <meta-data android:name="ivi.defaultDisplay" android:value="@DISPLAY@" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
