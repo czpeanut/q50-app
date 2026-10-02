@@ -33,7 +33,10 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import dalvik.system.DexFile;
+
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileReader;
 import java.net.ConnectException;
 import java.net.InetAddress;
@@ -46,6 +49,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.Set;
 
 /**
@@ -66,7 +71,12 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
     private static final int T_A = 46, T_B = 47;    // the two whose photos disagreed
 
     private final Handler ui = new Handler();
-    private TextView live, report, net;
+    private TextView live, link, report, net;
+    // the "ivi" network type is the phone link; its state is watched live so a tethering toggle
+    // on the phone shows up here within two seconds, with the moment it happened
+    private final Poll poll = new Poll(this);
+    private final List<String> linkLog = new ArrayList<String>();
+    private String lastLink = "";
     private Button bScan, bNet;
     private SensorManager sm;
     private float v46 = Float.NaN, v47 = Float.NaN;
@@ -96,11 +106,13 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
         body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(8, 4, 8, 24);
         live = text(0xFFFFD27A);
+        link = text(0xFF9CFF9C);
         net = text(0xFF7AE0FF);
         report = text(0xFFE0E0E0);
         net.setText("[網路測試] 尚未執行。按上面的按鈕開始，約需 15 秒。\n"
                 + "  請記下這次開機時「允許應用程式存取網路？」按的是「是」還是「否」。");
         body.addView(live);
+        body.addView(link);
         body.addView(net);
         body.addView(report);
 
@@ -127,11 +139,14 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
             }
         } catch (Throwable t) { sensorErr = t.toString(); }
         showLive();
+        ui.removeCallbacks(poll);
+        ui.post(poll);
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        ui.removeCallbacks(poll);
         try { if (sm != null) sm.unregisterListener(this); } catch (Throwable ignored) { }
     }
 
@@ -166,7 +181,7 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
         long t0 = SystemClock.uptimeMillis();
         // the network prompt is answered once per boot, so every photo needs to say which boot
         sb.append("開機後 / since boot: ").append(SystemClock.elapsedRealtime() / 1000).append(" s\n");
-        for (int i = 0; i <= 8; i++) {
+        for (int i = 0; i < TITLES.length; i++) {
             section(sb, TITLES[i]);
             // one section failing must not cost the rest of the report
             try { part(i, sb); } catch (Throwable t) { sb.append("  FAILED: ").append(t).append('\n'); }
@@ -179,6 +194,8 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
         "0. 這個變體 / THIS VARIANT", "1. 顯示 / DISPLAY", "2. 車輛感測器 / SENSORS",
         "3. 網路介面 / NETWORK", "4. 藍牙 / BLUETOOTH", "5. 非 android 權限 / VENDOR PERMISSIONS",
         "6. 對外開放的元件 / EXPORTED COMPONENTS", "7. 已安裝套件 / PACKAGES", "8. 系統 / SYSTEM",
+        "9. 系統服務 / BINDER SERVICES", "10. 共用函式庫 / SHARED LIBRARIES",
+        "11. Ygomi 框架類別 / VENDOR FRAMEWORK CLASSES",
     };
 
     private void part(int i, StringBuilder sb) {
@@ -191,7 +208,10 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
             case 5: permissions(sb); break;
             case 6: components(sb); break;
             case 7: packages(sb); break;
-            default: system(sb); break;
+            case 8: system(sb); break;
+            case 9: services(sb); break;
+            case 10: libraries(sb); break;
+            default: vendorClasses(sb); break;
         }
     }
 
@@ -305,6 +325,7 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
 
     private static String info(NetworkInfo n) {
         return n.getTypeName() + "/" + n.getSubtypeName() + " " + n.getState()
+                + (n.isAvailable() ? " avail" : " unavail")
                 + (n.isConnected() ? " CONNECTED" : "")
                 + (n.getExtraInfo() != null ? " extra=" + n.getExtraInfo() : "")
                 + (n.getReason() != null ? " reason=" + n.getReason() : "");
@@ -453,6 +474,155 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
         finally { if (r != null) try { r.close(); } catch (Throwable ignored) { } }
     }
 
+    // ---------------------------------------------------------------- phone link, live
+
+    /** every 2 s while visible: the ivi network, the interfaces, the default route */
+    private static final class Poll implements Runnable {
+        private final SurveyActivity a;
+        Poll(SurveyActivity a) { this.a = a; }
+        public void run() {
+            a.watchLink();
+            a.ui.postDelayed(this, 2000);
+        }
+    }
+
+    private void watchLink() {
+        StringBuilder now = new StringBuilder();
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkInfo[] all = cm.getAllNetworkInfo();
+            boolean found = false;
+            for (int i = 0; all != null && i < all.length; i++)
+                if ("ivi".equalsIgnoreCase(all[i].getTypeName())) { now.append(info(all[i])); found = true; }
+            if (!found) now.append("ivi type not present");
+        } catch (Throwable t) { now.append(t); }
+        now.append("\n  if:");
+        try {
+            Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces();
+            while (en != null && en.hasMoreElements()) {
+                NetworkInterface ni = en.nextElement();
+                if ("lo".equals(ni.getName())) continue;
+                now.append(' ').append(ni.getName());
+                Enumeration<InetAddress> as = ni.getInetAddresses();
+                while (as.hasMoreElements()) now.append('=').append(as.nextElement().getHostAddress());
+            }
+        } catch (Throwable t) { now.append(' ').append(t); }
+        List<String> gw = gateways();
+        now.append("\n  gw: ").append(gw.isEmpty() ? "none" : gw.toString());
+
+        String cur = now.toString();
+        if (!cur.equals(lastLink)) {
+            lastLink = cur;
+            linkLog.add(0, "  @" + SystemClock.elapsedRealtime() / 1000 + "s  " + cur.replace("\n  ", " | "));
+            while (linkLog.size() > 6) linkLog.remove(linkLog.size() - 1);
+        }
+        StringBuilder out = new StringBuilder("[手機連線 即時] ivi: ").append(cur)
+                .append("\n  變化紀錄 / changes (newest first):\n");
+        for (int i = 0; i < linkLog.size(); i++) out.append(linkLog.get(i)).append('\n');
+        link.setText(out.toString());
+    }
+
+    // ---------------------------------------------------------------- platform internals, read only
+
+    /** binder services registered with the service manager; hidden API, reached by reflection */
+    private void services(StringBuilder sb) {
+        Class<?> c;
+        String[] names;
+        try {
+            c = Class.forName("android.os.ServiceManager");
+            names = (String[]) c.getMethod("listServices").invoke(null);
+        } catch (Throwable t) { sb.append("  ").append(t).append('\n'); return; }
+        if (names == null) { sb.append("  none\n"); return; }
+        List<String> l = new ArrayList<String>(Arrays.asList(names));
+        Collections.sort(l);
+        sb.append("count=").append(l.size()).append('\n');
+        StringBuilder row = new StringBuilder();
+        for (int i = 0; i < l.size(); i++) {           // several to a line: most are AOSP noise
+            if (row.length() + l.get(i).length() > 90) { sb.append("  ").append(row).append('\n'); row.setLength(0); }
+            row.append(l.get(i)).append("  ");
+        }
+        if (row.length() > 0) sb.append("  ").append(row).append('\n');
+    }
+
+    /** shared libraries and features the platform declares; a vendor SDK would be listed here */
+    private void libraries(StringBuilder sb) {
+        File[] xml = new File("/system/etc/permissions").listFiles();
+        if (xml == null) { sb.append("  /system/etc/permissions unreadable\n"); return; }
+        Arrays.sort(xml);
+        for (int i = 0; i < xml.length; i++) {
+            sb.append("  ").append(xml[i].getName()).append('\n');
+            BufferedReader r = null;
+            try {
+                r = new BufferedReader(new FileReader(xml[i]));
+                String line;
+                while ((line = r.readLine()) != null) {
+                    String t = line.trim();
+                    if (t.startsWith("<library") || t.startsWith("<feature")) sb.append("      ").append(t).append('\n');
+                }
+            } catch (Throwable t) { sb.append("      ").append(t).append('\n'); }
+            finally { if (r != null) try { r.close(); } catch (Throwable ignored) { } }
+        }
+        sb.append("BOOTCLASSPATH=").append(System.getenv("BOOTCLASSPATH")).append('\n');
+    }
+
+    /**
+     * Class names in every jar under /system/framework, filtered to the vendors, and the public
+     * methods of the ones whose names suggest an API worth reading. Classes are looked up with
+     * initialize=false, so no static initializer runs and nothing binds to any service.
+     */
+    private void vendorClasses(StringBuilder sb) {
+        File[] jars = new File("/system/framework").listFiles();
+        if (jars == null) { sb.append("  /system/framework unreadable\n"); return; }
+        Arrays.sort(jars);
+        List<String> hits = new ArrayList<String>();
+        for (int i = 0; i < jars.length; i++) {
+            String path = jars[i].getPath();
+            if (!path.endsWith(".jar")) continue;
+            int n = 0;
+            try {
+                DexFile dx = new DexFile(path);
+                Enumeration<String> en = dx.entries();
+                while (en.hasMoreElements()) {
+                    String c = en.nextElement();
+                    if (c.indexOf('$') >= 0) continue;
+                    if (c.startsWith("com.ygomi.") || c.startsWith("com.connexis.")
+                            || c.indexOf(".ivi.") >= 0 || c.indexOf("nissan") >= 0
+                            || c.indexOf("infiniti") >= 0) { hits.add(c); n++; }
+                }
+                dx.close();
+            } catch (Throwable t) { sb.append("  ").append(jars[i].getName()).append(": ").append(t).append('\n'); continue; }
+            if (n > 0) sb.append("  ").append(jars[i].getName()).append(": ").append(n).append(" vendor classes\n");
+        }
+        Collections.sort(hits);
+        sb.append("vendor classes (").append(hits.size()).append("):\n");
+        for (int i = 0; i < hits.size() && i < 300; i++) sb.append("  ").append(hits.get(i)).append('\n');
+
+        int shown = 0;
+        ClassLoader cl = getClassLoader();
+        for (int i = 0; i < hits.size() && shown < 30; i++) {
+            String name = hits.get(i);
+            String simple = name.substring(name.lastIndexOf('.') + 1);
+            if (!simple.matches(".*(Manager|Navi|Display|Vehicle|Battery|Hybrid|Energy|Connect|Network|Tether|Phone|Can|Sensor).*"))
+                continue;
+            Class<?> k;
+            try { k = Class.forName(name, false, cl); }
+            catch (Throwable t) { sb.append("  [not loadable here] ").append(name).append('\n'); continue; }
+            shown++;
+            sb.append("  ").append(name).append(":\n");
+            Method[] ms;
+            try { ms = k.getDeclaredMethods(); } catch (Throwable t) { sb.append("      ").append(t).append('\n'); continue; }
+            int m = 0;
+            for (int j = 0; j < ms.length && m < 25; j++) {
+                if (!Modifier.isPublic(ms[j].getModifiers())) continue;
+                m++;
+                sb.append("      ").append(ms[j].getReturnType().getSimpleName()).append(' ').append(ms[j].getName()).append('(');
+                Class<?>[] ps = ms[j].getParameterTypes();
+                for (int q = 0; q < ps.length; q++) sb.append(q > 0 ? ", " : "").append(ps[q].getSimpleName());
+                sb.append(")\n");
+            }
+        }
+    }
+
     // ---------------------------------------------------------------- network probe
 
     /**
@@ -476,14 +646,26 @@ public class SurveyActivity extends Activity implements View.OnClickListener, Se
             sb.append(line("192.168.44.1", 53));   // Android, Bluetooth tethering
             sb.append(line("192.168.43.1", 53));   // Android, Wi-Fi hotspot
             sb.append(line("172.20.10.1", 53));    // iPhone, Personal Hotspot
-            sb.append(line("8.8.8.8", 53));        // the internet, by address
-            long t0 = SystemClock.uptimeMillis();
-            try {
-                InetAddress x = InetAddress.getByName("www.google.com");
-                sb.append("  DNS www.google.com -> ").append(x.getHostAddress());
-            } catch (Throwable t) { sb.append("  DNS www.google.com -> ").append(t); }
-            sb.append("  (").append(SystemClock.uptimeMillis() - t0).append(" ms)\n");
+            // Last time 8.8.8.8:53 was refused in 9 ms with no default route, which only
+            // something local could do. Two more addresses and ports show whether that is a
+            // blanket rule.
+            sb.append(line("8.8.8.8", 53));
+            sb.append(line("8.8.8.8", 80));
+            sb.append(line("1.1.1.1", 443));
+            // and www.google.com resolved to 224.0.0.1 in 1 ms: check whether every name does
+            dns(sb, "www.google.com");
+            dns(sb, "example.com");
             a.ui.post(new Deliver(a, sb.toString()));
+        }
+
+        private static void dns(StringBuilder sb, String name) {
+            long t0 = SystemClock.uptimeMillis();
+            sb.append("  DNS ").append(name).append(" -> ");
+            try {
+                InetAddress[] all = InetAddress.getAllByName(name);
+                for (int i = 0; i < all.length; i++) sb.append(all[i].getHostAddress()).append(' ');
+            } catch (Throwable t) { sb.append(t); }
+            sb.append(" (").append(SystemClock.uptimeMillis() - t0).append(" ms)\n");
         }
 
         private static String line(String host, int port) {
