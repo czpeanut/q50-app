@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>V.T.D. HUD</title>
+<style>
+  @font-face { font-family: "Chakra"; src: url("fonts/ChakraPetch.ttf") format("truetype"); }
+  /* Black is what a combiner lens shows as clear: the page must never paint anything else. */
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; cursor: none; }
+  canvas { position: absolute; left: 0; top: 0; }
+</style>
+</head>
+<body>
+<canvas id="hud"></canvas>
+<script src="hud.js"></script>
+</body>
+</html>

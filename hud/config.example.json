@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Copy to config.json to poll manufacturer PIDs alongside the standard ones.",
+    "Every request must be a read (service 22 here); hud.py refuses to start otherwise.",
+    "header: the ECU to address (ATSH). value = big-endian bytes[start:start+bytes] * scale + offset.",
+    "The entry below is a placeholder showing the shape. It is NOT a known Q50 Hybrid PID:",
+    "fill it in only from a source you trust or from your own reading with a scan tool."
+  ],
+  "custom_pids": [
+    {
+      "field": "soc_mfr",
+      "header": "7E4",
+      "request": "220000",
+      "start": 0,
+      "bytes": 2,
+      "scale": 0.01,
+      "offset": 0
+    }
+  ]
+}
